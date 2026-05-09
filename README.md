@@ -210,7 +210,11 @@ Free delivery rules:
 
 ## Admin Notification
 
-The official admin Telegram account must open the bot and send `/start` once. Then send `/id`, copy the chat ID, and set:
+`ADMIN_CHAT_ID` must be a numeric Telegram user ID or group ID. Do not use an `@username`.
+
+Use `@userinfobot` in Telegram to get the numeric ID, or have the official admin Telegram account open this bot and send `/id`. The admin account must send `/start` to this bot once before the bot can message it.
+
+Then set the numeric ID in Render:
 
 ```env
 ADMIN_CHAT_ID=123456789
@@ -221,3 +225,12 @@ Multiple admins are supported:
 ```env
 ADMIN_CHAT_ID=123456789,987654321
 ```
+
+Cancel texts supported:
+
+- `Cancel`
+- `❌ Cancel`
+- `မလုပ်တော့ပါ`
+- `မလုပ်တော့ဘူး`
+- `မလုပ်တော့ပါဘူး`
+- `မယူတော့ပါ`

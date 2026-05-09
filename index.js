@@ -166,7 +166,14 @@ function getAdminChatIds() {
   return String(ADMIN_CHAT_ID || "")
     .split(",")
     .map((chatId) => chatId.trim())
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter((chatId) => {
+      const isNumeric = /^-?\d+$/.test(chatId);
+      if (!isNumeric) {
+        console.error("ADMIN_CHAT_ID must be numeric, not username:", chatId);
+      }
+      return isNumeric;
+    });
 }
 
 async function sendAdminMessage(text) {
@@ -431,12 +438,22 @@ function zoneSearchText(zone) {
   return normalizeText(`${zone.city || ""} ${zone.township || ""} ${aliases}`);
 }
 
+function zoneTokens(zone) {
+  const aliases = Array.isArray(zone.aliases) ? zone.aliases : String(zone.aliases || "").split(",");
+  return [zone.city, zone.township, ...aliases]
+    .map((token) => normalizeText(token))
+    .filter((token) => token.length >= 2);
+}
+
 async function getDeliveryInfo(input) {
   const normalized = normalizeText(input);
   if (!normalized) return null;
 
   const zones = await getDeliveryZones();
   return (
+    zones.find((zone) =>
+      zoneTokens(zone).some((token) => normalized.includes(token))
+    ) ||
     zones.find((zone) => {
       const haystack = zoneSearchText(zone);
       return haystack && (normalized.includes(haystack) || haystack.includes(normalized));
@@ -618,6 +635,8 @@ async function notifyAdmin(order, totals, session, from) {
     `COD: ${deliveryInfo ? (deliveryInfo.cod_available ? "Yes" : "No / Prepaid") : "Needs review"}`,
     deliveryInfo?.estimated_days ? `ETA: ${cleanHtml(deliveryInfo.estimated_days)}` : "",
     deliveryInfo?.note ? `Delivery note: ${cleanHtml(deliveryInfo.note)}` : "",
+    !deliveryInfo ? "Note: Unknown delivery zone. Admin must confirm fee/payment." : "",
+    order.note ? `Order note: ${cleanHtml(order.note)}` : "",
     "",
     `Customer: ${cleanHtml(session.customerName || order.customer_name || "")}`,
     `Phone: ${cleanHtml(session.phone)}`,
@@ -743,13 +762,42 @@ function parseCustomerInfo(text, product = null) {
   const customerName = product
     ? cleanCustomerNameLine(otherLines[0] || "", product)
     : otherLines[0] || "";
-  const address = otherLines.slice(1).join(", ");
+  const address =
+    phoneIndex >= 0
+      ? lines.slice(phoneIndex + 1).join(", ").trim()
+      : otherLines.slice(1).join(", ").trim();
 
   return { customerName, address, phone };
 }
 
 function hasCustomerInfo(session) {
   return Boolean(session?.customerName && session?.address && session?.phone);
+}
+
+function isCancelText(text) {
+  const normalized = normalizeText(text);
+  return [
+    "cancel",
+    "❌ cancel",
+    "မလုပ်တော့ပါ",
+    "မလုပ်တော့ဘူး",
+    "မလုပ်တော့ပါဘူး",
+    "မယူတော့ပါ",
+  ].some((keyword) => normalized === normalizeText(keyword) || normalized.includes(normalizeText(keyword)));
+}
+
+async function cancelOrder(chatId, from = null) {
+  clearSession(chatId);
+  if (from?.id) {
+    await updateCustomerSession(from.id, {
+      current_intent: "cancelled",
+      draft_order: null,
+    });
+  }
+
+  await sendMessage(chatId, "Order မလုပ်တော့ပါဘူးရှင့်။ Menu ကိုပြန်သွားပါမယ်။", {
+    reply_markup: mainMenuKeyboard(),
+  });
 }
 
 function normalizeMyanmarDigits(value) {
@@ -940,10 +988,9 @@ async function buildOrderSessionFromText(text, from, existingSession = null) {
   if (!parsed.phone || !parsed.address) return null;
   const deliveryInfo = await getDeliveryInfo(`${text}\n${parsed.address}`);
   const city =
-    deliveryInfo?.township ||
-    deliveryInfo?.city ||
-    parsed.address.split(/[,\s]+/).find((part) => part.length > 2) ||
-    "";
+    deliveryInfo
+      ? [deliveryInfo.city, deliveryInfo.township].filter(Boolean).join(" / ")
+      : parsed.address.split(/[,\s]+/).find((part) => part.length > 2) || "";
 
   return {
     ...(existingSession || {}),
@@ -1015,8 +1062,7 @@ async function handleCallback(update) {
   }
 
   if (data === "cancel") {
-    clearSession(chatId);
-    await sendMessage(chatId, TEXT.cancelled, { reply_markup: removeKeyboard() });
+    await cancelOrder(chatId, from);
     return;
   }
 
@@ -1848,8 +1894,12 @@ async function handleMessage(update) {
   }
 
   if (text === "/cancel") {
-    clearSession(chatId);
-    await sendMessage(chatId, TEXT.cancelled, { reply_markup: removeKeyboard() });
+    await cancelOrder(chatId, message.from);
+    return;
+  }
+
+  if (text && isCancelText(text)) {
+    await cancelOrder(chatId, message.from);
     return;
   }
 
@@ -1901,7 +1951,9 @@ async function handleMessage(update) {
         address: parsed.address,
         phone: parsed.phone,
         deliveryInfo,
-        city: deliveryInfo?.township || deliveryInfo?.city || session.city,
+        city: deliveryInfo
+          ? [deliveryInfo.city, deliveryInfo.township].filter(Boolean).join(" / ")
+          : session.city,
         paymentMethod: deliveryInfo?.payment_method || session.paymentMethod,
       };
       setSession(chatId, nextSession);
