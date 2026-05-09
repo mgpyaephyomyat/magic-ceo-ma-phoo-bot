@@ -204,9 +204,18 @@ Draft carts are stored in `customer_sessions.draft_order` like:
 
 Free delivery rules:
 
-- Single-product orders use `products.free_delivery_qty`.
 - Mixed carts get free delivery when total cart quantity is at least 3.
+- BodyWash single-product orders get free delivery at quantity 4 or more.
+- Other single-product orders use `products.free_delivery_qty`.
 - Unknown delivery zones do not get a final delivery fee until admin confirms.
+
+Customer-facing payment labels:
+
+- `အိမ်ရောက်ငွေချေ` for eligible delivery zones
+- `ကြိုလွှဲငွေချေ` for prepaid zones
+- `Admin confirm` when delivery zone is unknown
+
+Only Yangon, Mandalay, and Tachileik zones can be treated as eligible for `အိမ်ရောက်ငွေချေ`. Other cities should be prepaid/admin-confirm even if a customer asks for cash-on-delivery.
 
 ## Admin Notification
 

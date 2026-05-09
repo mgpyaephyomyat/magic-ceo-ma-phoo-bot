@@ -66,6 +66,38 @@ const PRODUCT_MENU_ORDER = [
   "Detox Essence",
 ];
 
+const YANGON_ALIASES = [
+  "ရန်ကုန်",
+  "yangon",
+  "သင်္ဃန်းကျွန်း",
+  "တောင်ဥက္ကလာ",
+  "မြောက်ဥက္ကလာ",
+  "သာကေတ",
+  "ဒဂုံ",
+  "အင်းစိန်",
+  "လှိုင်",
+  "မရမ်းကုန်း",
+  "တာမွေ",
+  "စမ်းချောင်း",
+  "ကမာရွတ်",
+  "ရန်ကင်း",
+  "ဗဟန်း",
+];
+
+const MANDALAY_ALIASES = [
+  "မန္တလေး",
+  "mandalay",
+  "ချမ်းအေးသာဇံ",
+  "ချမ်းမြသာစည်",
+  "မဟာအောင်မြေ",
+  "အောင်မြေသာဇံ",
+  "ပြည်ကြီးတံခွန်",
+  "အမရပူရ",
+  "ပုသိမ်ကြီး",
+];
+
+const TACHILEIK_ALIASES = ["တာချီလိတ်", "tachileik", "tachilek"];
+
 const TEXT = {
   start:
     "မင်္ဂလာပါရှင့် 💄\nMagic CEO Ma Phoo Cosmetics Shop မှ ကြိုဆိုပါတယ်။\nအောက်က menu ကနေ ပစ္စည်းကြည့်ပြီး မှာယူနိုင်ပါတယ်ရှင့်။",
@@ -76,7 +108,7 @@ const TEXT = {
     "ဖုန်းနံပါတ်ပေးပေးပါရှင့်။ Telegram contact ပို့နိုင်သလို စာနဲ့လည်း ရိုက်ပေးနိုင်ပါတယ်။",
   askAddress: "ပို့ရမယ့် လိပ်စာအပြည့်အစုံ ရိုက်ပေးပါရှင့်။",
   orderSaved:
-    "အော်ဒါတင်ပြီးပါပြီရှင့်။ Admin မှ ဖုန်းဆက်ပြီး အတည်ပြုပေးပါမယ်။ COD နဲ့ ပစ္စည်းရောက်မှ ငွေချေပေးရပါမယ်ရှင့်။",
+    "အော်ဒါတင်ပြီးပါပြီရှင့်။ Admin မှ ဖုန်းဆက်ပြီး အတည်ပြုပေးပါမယ်။ အိမ်ရောက်ငွေချေ ရတဲ့မြို့တွေမှာ ပစ္စည်းရောက်မှ ငွေချေပေးရပါမယ်ရှင့်။",
   cancelled: "အော်ဒါကို ပယ်ဖျက်ပြီးပါပြီရှင့်။",
   unknown:
     "နားလည်အောင် မဖမ်းမိသေးပါဘူးရှင့်။ ပစ္စည်းကြည့်ရန် /start ကိုနှိပ်နိုင်ပါတယ်။",
@@ -86,7 +118,7 @@ function mainMenuKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "🛍 ပစ္စည်းများ", callback_data: "products" }],
-      [{ text: "🚚 မှာယူပုံ / COD", callback_data: "help_order" }],
+      [{ text: "🚚 မှာယူပုံ / ငွေချေမှု", callback_data: "help_order" }],
       [{ text: "☎️ Admin ဆက်သွယ်ရန်", callback_data: "contact_admin" }],
     ],
   };
@@ -232,7 +264,9 @@ function shortText(value, maxLength = 130) {
 }
 
 function freeDeliveryText(product) {
-  const freeDeliveryQty = Number(product.free_delivery_qty || 0);
+  const freeDeliveryQty = normalizeText(product.name).includes("bodywash")
+    ? 4
+    : Number(product.free_delivery_qty || 0);
   return freeDeliveryQty > 0
     ? `${freeDeliveryQty} ခုနှင့်အထက် Free Delivery`
     : "Free delivery သတ်မှတ်ချက် မရှိသေးပါ";
@@ -327,7 +361,7 @@ function formatLegacyOrderSummary(session) {
       totals.isFreeDelivery ? "Free Delivery" : money(totals.deliveryFee)
     }`,
     `စုစုပေါင်း: <b>${money(totals.total)}</b>`,
-    "Payment: COD - ပစ္စည်းရောက်မှ ငွေချေ",
+    "Payment: အိမ်ရောက်ငွေချေ",
     phone ? `ဖုန်း: ${cleanHtml(phone)}` : "",
     address ? `လိပ်စာ: ${cleanHtml(address)}` : "",
   ]
@@ -348,7 +382,7 @@ function formatBasicOrderSummary(session) {
       totals.isFreeDelivery ? "Free Delivery" : money(totals.deliveryFee)
     }`,
     `Total: <b>${money(totals.total)}</b>`,
-    "COD: ပစ္စည်းရောက်မှ ငွေချေပါရှင့်",
+    "ငွေချေမှု: အိမ်ရောက်ငွေချေ",
     customerName ? `Customer name: ${cleanHtml(customerName)}` : "",
     phone ? `Phone: ${cleanHtml(phone)}` : "",
     address ? `Address: ${cleanHtml(address)}` : "",
@@ -361,12 +395,8 @@ function formatOrderSummary(session) {
   const { customerName, phone, address, city, deliveryInfo } = session;
   const items = getSessionItems(session);
   const totals = calculateCart(items, deliveryInfo);
-  const codStatus = deliveryInfo
-    ? deliveryInfo.cod_available
-      ? "ရပါတယ်"
-      : "Prepaid လိုနိုင်ပါတယ်"
-    : "Staff confirm လုပ်ပေးပါမယ်";
-  const paymentMethod = deliveryInfo?.payment_method || session.paymentMethod || "needs_review";
+  const codStatus = getCodLabel(deliveryInfo);
+  const paymentMethod = getPaymentLabel(deliveryInfo);
   const itemLines = items.map(
     (item, index) =>
       `${index + 1}. ${cleanHtml(item.product_name)} x${item.quantity} = ${money(item.subtotal)}`
@@ -387,14 +417,14 @@ function formatOrderSummary(session) {
     }`,
     `Total: <b>${totals.deliveryFee === null ? "Admin confirm" : money(totals.total)}</b>`,
     `Payment: ${cleanHtml(paymentMethod)}`,
-    `COD: ${cleanHtml(codStatus)}`,
+    `အိမ်ရောက်ငွေချေ: ${cleanHtml(codStatus)}`,
     "",
     "<b>Customer</b>",
     customerName ? `Customer name: ${cleanHtml(customerName)}` : "",
     phone ? `Phone: ${cleanHtml(phone)}` : "",
     city ? `City/Township: ${cleanHtml(city)}` : "",
     address ? `Address: ${cleanHtml(address)}` : "",
-    !deliveryInfo ? "Note: Delivery/COD ကို staff က confirm လုပ်ပေးပါမယ်ရှင့်။" : "",
+    !deliveryInfo ? "Note: Delivery နဲ့ ငွေချေမှုကို Admin က confirm လုပ်ပေးပါမယ်ရှင့်။" : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -440,9 +470,50 @@ function zoneSearchText(zone) {
 
 function zoneTokens(zone) {
   const aliases = Array.isArray(zone.aliases) ? zone.aliases : String(zone.aliases || "").split(",");
-  return [zone.city, zone.township, ...aliases]
+  const base = [zone.city, zone.township, ...aliases];
+  const normalizedBase = normalizeText(base.join(" "));
+  const builtInAliases = [];
+
+  if (YANGON_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
+    builtInAliases.push(...YANGON_ALIASES);
+  }
+  if (MANDALAY_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
+    builtInAliases.push(...MANDALAY_ALIASES);
+  }
+  if (TACHILEIK_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
+    builtInAliases.push(...TACHILEIK_ALIASES);
+  }
+
+  return [...base, ...builtInAliases]
     .map((token) => normalizeText(token))
     .filter((token) => token.length >= 2);
+}
+
+function isCodCity(zone) {
+  const haystack = zoneTokens(zone).join(" ");
+  return [...YANGON_ALIASES, ...MANDALAY_ALIASES, ...TACHILEIK_ALIASES].some((alias) =>
+    haystack.includes(normalizeText(alias))
+  );
+}
+
+function normalizeDeliveryZone(zone) {
+  if (!zone) return null;
+  const codAvailable = Boolean(zone.cod_available && isCodCity(zone));
+  return {
+    ...zone,
+    cod_available: codAvailable,
+    payment_method: codAvailable ? "COD" : zone.payment_method || "prepaid",
+  };
+}
+
+function getPaymentLabel(deliveryInfo) {
+  if (!deliveryInfo) return "Admin confirm";
+  return deliveryInfo.cod_available ? "အိမ်ရောက်ငွေချေ" : "ကြိုလွှဲငွေချေ";
+}
+
+function getCodLabel(deliveryInfo) {
+  if (!deliveryInfo) return "Admin confirm";
+  return deliveryInfo.cod_available ? "ရပါတယ်" : "မရပါ";
 }
 
 async function getDeliveryInfo(input) {
@@ -450,7 +521,7 @@ async function getDeliveryInfo(input) {
   if (!normalized) return null;
 
   const zones = await getDeliveryZones();
-  return (
+  const zone =
     zones.find((zone) =>
       zoneTokens(zone).some((token) => normalized.includes(token))
     ) ||
@@ -465,8 +536,9 @@ async function getDeliveryInfo(input) {
         .filter((part) => part.length >= 2)
         .some((part) => normalized.includes(part));
     }) ||
-    null
-  );
+    null;
+
+  return normalizeDeliveryZone(zone);
 }
 
 async function getCustomerSession(telegramUserId) {
@@ -575,7 +647,7 @@ async function saveOrder(chat, from, session) {
     delivery_address: session.address,
     address: session.address,
     city: session.city || session.deliveryInfo?.city || null,
-    payment_method: session.deliveryInfo?.payment_method || session.paymentMethod || "needs_review",
+    payment_method: getPaymentLabel(session.deliveryInfo),
     status: session.deliveryInfo
       ? session.deliveryInfo.cod_available
         ? "pending"
@@ -619,7 +691,7 @@ async function notifyAdmin(order, totals, session, from) {
       `${index + 1}. ${cleanHtml(item.product_name)} x${item.quantity} = ${money(item.subtotal)}`
   );
   const message = [
-    "<b>New COD Order</b>",
+    "<b>New Order</b>",
     `Order ID: ${cleanHtml(order.id)}`,
     `Status: ${cleanHtml(order.status || "pending")}`,
     "",
@@ -631,8 +703,8 @@ async function notifyAdmin(order, totals, session, from) {
       totals.deliveryFee === null ? "Admin confirm" : totals.isFreeDelivery ? "Free" : money(totals.deliveryFee)
     }`,
     `Total: ${totals.deliveryFee === null ? "Admin confirm" : money(totals.total)}`,
-    `Payment: ${cleanHtml(order.payment_method || "COD")}`,
-    `COD: ${deliveryInfo ? (deliveryInfo.cod_available ? "Yes" : "No / Prepaid") : "Needs review"}`,
+    `Payment: ${cleanHtml(getPaymentLabel(deliveryInfo))}`,
+    `COD: ${cleanHtml(getCodLabel(deliveryInfo))}`,
     deliveryInfo?.estimated_days ? `ETA: ${cleanHtml(deliveryInfo.estimated_days)}` : "",
     deliveryInfo?.note ? `Delivery note: ${cleanHtml(deliveryInfo.note)}` : "",
     !deliveryInfo ? "Note: Unknown delivery zone. Admin must confirm fee/payment." : "",
@@ -761,9 +833,10 @@ function parseCustomerInfo(text, product = null) {
   const phoneMatch = phoneIndex >= 0 ? lines[phoneIndex].match(/(?:\+?95|09)[\d\s().-]{5,}/) : null;
   const phone = phoneMatch ? phoneMatch[0].trim() : "";
   const otherLines = lines.filter((_, index) => index !== phoneIndex);
+  const rawCustomerName = phoneIndex === 0 ? "" : otherLines[0] || "";
   const customerName = product
-    ? cleanCustomerNameLine(otherLines[0] || "", product)
-    : otherLines[0] || "";
+    ? cleanCustomerNameLine(rawCustomerName, product)
+    : rawCustomerName;
   const address =
     phoneIndex >= 0
       ? lines.slice(phoneIndex + 1).join(", ").trim()
@@ -789,6 +862,16 @@ function isCancelText(text) {
 }
 
 async function cancelOrder(chatId, from = null) {
+  const currentSession = getSession(chatId);
+  if (!currentSession) {
+    await sendMessage(
+      chatId,
+      "ဖျက်ရန် pending order မရှိတော့ပါဘူးရှင့်။ အတည်ပြုပြီး order ဆိုရင် Admin က ကူညီစစ်ပေးပါမယ်။",
+      { reply_markup: mainMenuKeyboard() }
+    );
+    return;
+  }
+
   clearSession(chatId);
   if (from?.id) {
     await updateCustomerSession(from.id, {
@@ -873,15 +956,17 @@ function getSessionItems(session) {
 
 function isCartFreeDelivery(items) {
   const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-  const productTypes = new Set(items.map((item) => String(item.product_id))).size;
 
   if (items.length === 1) {
     const item = items[0];
-    const freeDeliveryQty = Number(item.product?.free_delivery_qty || 0);
-    return freeDeliveryQty > 0 && item.quantity >= freeDeliveryQty;
+    const productName = normalizeText(item.product_name);
+    const freeDeliveryQty = productName.includes("bodywash")
+      ? 4
+      : Number(item.product?.free_delivery_qty || 0);
+    return freeDeliveryQty > 0 && Number(item.quantity || 0) >= freeDeliveryQty;
   }
 
-  return totalQuantity >= 3 || productTypes >= 3;
+  return totalQuantity >= 3;
 }
 
 function calculateCart(items, deliveryInfo = null) {
@@ -903,8 +988,8 @@ function calculateCart(items, deliveryInfo = null) {
     isFreeDelivery,
     freeDeliveryReason: isFreeDelivery
       ? totalQuantity >= 3 && items.length > 1
-        ? "၃မျိုး/၃ခုယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰"
-        : "Free delivery ရပါတယ်ရှင့် 🥰"
+        ? "၃ခုနှင့်အထက်ယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰"
+        : "Deli free ရပါတယ်ရှင့် 🥰"
       : "",
   };
 }
@@ -921,7 +1006,7 @@ function cartDraftFromSession(session) {
     city: session.city || session.deliveryInfo?.township || session.deliveryInfo?.city || null,
     delivery_fee: totals.deliveryFee,
     total: totals.deliveryFee === null ? null : totals.total,
-    payment_method: session.deliveryInfo?.payment_method || session.paymentMethod || "needs_review",
+    payment_method: getPaymentLabel(session.deliveryInfo),
     status: session.deliveryInfo
       ? session.deliveryInfo.cod_available
         ? "pending"
@@ -1005,7 +1090,7 @@ async function buildOrderSessionFromText(text, from, existingSession = null) {
     address: parsed.address,
     city,
     deliveryInfo,
-    paymentMethod: deliveryInfo?.payment_method || (deliveryInfo?.cod_available ? "COD" : "needs_review"),
+    paymentMethod: getPaymentLabel(deliveryInfo),
     from,
   };
 }
@@ -1027,7 +1112,7 @@ async function handleHelpOrder(chatId) {
       "3. ဖုန်းနံပါတ်နှင့် လိပ်စာပေးပါ",
       "4. Admin မှ အတည်ပြုပြီး ပို့ဆောင်ပေးပါမယ်",
       "",
-      "Payment: COD - ပစ္စည်းရောက်မှ ငွေချေပေးပါရှင့်။",
+      "Payment: အိမ်ရောက်ငွေချေ ရတဲ့မြို့တွေမှာ ပစ္စည်းရောက်မှ ငွေချေပေးပါရှင့်။",
       "Free Delivery: Product တစ်ခုချင်းစီမှာ သတ်မှတ်ထားတဲ့ အရေအတွက်ပြည့်ရင် အလိုအလျောက်တွက်ပေးပါတယ်။",
     ].join("\n")
   );
@@ -1379,6 +1464,7 @@ async function extractAiIntent(text, context = {}) {
     "Never invent products or delivery zones. Pick product_name only from product data if clear.",
     "Fields: intent, product_name, quantity, items, city, township, customer_name, phone, address, question.",
     "For multi-product orders, set items to an array of { product_name, quantity }. Use quantity 1 if not specified.",
+    "Understand Burmese, English, and mixed Burmese-English product/order messages.",
   ].join("\n");
 
   const userPrompt = [
@@ -1491,12 +1577,12 @@ function cartItemsFromAiItems(aiItems, products, originalText) {
 
 function deliveryReply(zone) {
   if (!zone) {
-    return "အဲဒီမြို့/မြို့နယ်အတွက် delivery fee နဲ့ COD ကို staff က confirm လုပ်ပေးပါမယ်ရှင့်။ မြို့နယ်နာမည်လေး ပိုပြောပေးပါနော်။";
+    return "အဲဒီမြို့/မြို့နယ်အတွက် delivery fee နဲ့ ငွေချေမှုကို Admin က confirm လုပ်ပေးပါမယ်ရှင့်။ မြို့နယ်နာမည်လေး ပိုပြောပေးပါနော်။";
   }
 
   const payment = zone.cod_available
-    ? "COD ရပါတယ်ရှင့်။"
-    : `${zone.payment_method || "KPay/WavePay prepaid"} နဲ့ prepaid လိုနိုင်ပါတယ်ရှင့်။`;
+    ? "အိမ်ရောက်ငွေချေ ရပါတယ်ရှင့်။"
+    : "ကြိုလွှဲငွေချေ ဖြစ်ပါတယ်ရှင့်။";
 
   return [
     `${zone.township || zone.city} အတွက် delivery fee ${money(zone.delivery_fee)} ပါရှင့်။`,
@@ -1590,7 +1676,7 @@ async function handleAiAssistant(chatId, from, text) {
       customerName: intent.customer_name || storedSession?.customer_name || "",
       phone: intent.phone || storedSession?.phone || "",
       address: intent.address || storedSession?.address || "",
-      paymentMethod: deliveryInfo?.payment_method || (deliveryInfo?.cod_available ? "COD" : "needs_review"),
+      paymentMethod: getPaymentLabel(deliveryInfo),
       from,
     };
 
@@ -1641,11 +1727,12 @@ async function answerWithOpenRouter(chatId, text) {
     "Reply only in friendly Burmese/Myanmar language.",
     "Use only the product data provided below. Do not invent unavailable products, prices, stock, benefits, usage instructions, or delivery rules.",
     "Keep the reply short, warm, and sales-friendly. Prefer 2 to 5 short lines.",
+    "Never show internal status/payment words to customers: COD, prepaid, needs_review, pending_cod, awaiting_payment. Use Burmese labels only: အိမ်ရောက်ငွေချေ, ကြိုလွှဲငွေချေ, or Admin confirm.",
     "If the customer asks for usage, explain from usage_instruction only.",
     "If the customer asks for benefits, explain from benefits only.",
     "If the customer asks about price, mention product price and unit only from the data.",
     `Delivery rule: if product.free_delivery_qty is available and customer quantity is at least that number, free delivery applies. Otherwise delivery fee is ${deliveryFee} Ks.`,
-    "Delivery and payment must use delivery_zones data. If zone is unknown, say staff will confirm delivery fee and COD.",
+    "Delivery and payment must use delivery_zones data. If zone is unknown, say staff will confirm delivery fee and payment. Use Burmese labels: အိမ်ရောက်ငွေချေ or ကြိုလွှဲငွေချေ.",
     "If the customer wants to buy or order, tell them to choose the product and press the 'မှာယူမယ်' order button.",
     "If customer mentions multiple products, answer for all of them and explain mixed-cart free delivery if total quantity is 3 or more.",
     "Do not make medical guarantees. For acne/skin concerns, use gentle language like 'အထောက်အကူဖြစ်နိုင်ပါတယ်' and suggest patch testing if skin is sensitive.",
@@ -1777,7 +1864,7 @@ async function answerBurmeseQuestion(chatId, text) {
   ) {
     await sendMessage(
       chatId,
-      "COD နဲ့ ပစ္စည်းရောက်မှ ငွေချေပေးရပါတယ်ရှင့်။ Order တင်ပြီးရင် Admin က ဖုန်းဆက်အတည်ပြုပေးပါမယ်။"
+      "အိမ်ရောက်ငွေချေ ရတဲ့မြို့တွေမှာ ပစ္စည်းရောက်မှ ငွေချေပေးလို့ရပါတယ်ရှင့်။ တခြားမြို့တွေမှာ ကြိုလွှဲငွေချေ ဖြစ်နိုင်ပါတယ်။"
     );
     return true;
   }
@@ -1963,7 +2050,7 @@ async function handleMessage(update) {
         city: deliveryInfo
           ? [deliveryInfo.city, deliveryInfo.township].filter(Boolean).join(" / ")
           : session.city,
-        paymentMethod: deliveryInfo?.payment_method || session.paymentMethod,
+        paymentMethod: getPaymentLabel(deliveryInfo),
       };
       setSession(chatId, nextSession);
       await persistDraftOrder(message.from, nextSession, "order_intent");
@@ -2031,7 +2118,7 @@ async function handleMessage(update) {
       phone,
       deliveryInfo,
       city: deliveryInfo?.township || deliveryInfo?.city || session.city,
-      paymentMethod: deliveryInfo?.payment_method || session.paymentMethod,
+      paymentMethod: getPaymentLabel(deliveryInfo),
     };
     setSession(chatId, nextSession);
     await persistDraftOrder(message.from, nextSession, "order_intent");
