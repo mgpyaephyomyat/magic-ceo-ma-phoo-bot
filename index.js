@@ -647,9 +647,10 @@ async function notifyAdmin(order, totals, session, from) {
 
   try {
     await sendAdminMessage(message);
+    return true;
   } catch (error) {
     console.error("Admin notification failed", error.message);
-    throw error;
+    return false;
   }
 }
 
@@ -749,7 +750,8 @@ function parseCustomerInfo(text, product = null) {
     .split(/\r?\n/)
     .map((line) =>
       line
-        .replace(/^[-*•\d.\s]+/, "")
+        .replace(/^[-*•\s]+/, "")
+        .replace(/^\d+[.)]\s*/, "")
         .replace(/^(name|customer|phone|ph|address|နာမည်|ဖုန်း|လိပ်စာ)\s*[:=-]?\s*/i, "")
         .trim()
     )
@@ -937,7 +939,7 @@ function getProductAliases(product) {
   if (name.includes("hairmask")) aliases.push("hair mask", "hairmask", "ပေါင်းဆေး");
   if (name.includes("hair oil")) aliases.push("ဆံပင်တုန်ဆီ", "တုန်ဆီ", "ဆံပင်ဆီ", "hair oil");
   if (name.includes("whitening") || name.includes("soap")) aliases.push("ဆပ်ပြာခဲ", "အသားဖြူဆပ်ပြာခဲ", "whitening soap", "soap");
-  if (name.includes("toothpaste")) aliases.push("သွားတိုက်ဆေး", "toothpaste", "toothpaste set");
+  if (name.includes("toothpaste")) aliases.push("သွားတိုက်ဆေး", "toothpaste", "tooth paste", "toothpaste set", "tooth paste set");
   if (name.includes("acne")) aliases.push("မျက်နှာသစ်", "ဝက်ခြံပျောက်မျက်နှာသစ်", "ဝက်ခြံ", "face wash", "cleanser");
   if (name.includes("toner")) aliases.push("toner", "ချွေးပေါက်ကျဉ်း toner", "ချွေးပေါက်", "pore");
   if (name.includes("detox")) aliases.push("essence", "အဆိပ်ထုတ် essence", "detox", "detox essence");
@@ -1061,7 +1063,7 @@ async function handleCallback(update) {
     return;
   }
 
-  if (data === "cancel") {
+  if (data === "cancel" || data === "cancel_order") {
     await cancelOrder(chatId, from);
     return;
   }
@@ -1182,7 +1184,7 @@ async function handleCallback(update) {
     }
 
     const { order, totals } = await saveOrder(callback.message.chat, from, session);
-    await notifyAdmin(order, totals, session, from);
+    const adminNotified = await notifyAdmin(order, totals, session, from);
     await updateCustomerSession(from.id, {
       last_product: getSessionItems(session).map((item) => item.product_name).join(", "),
       last_city: session.city || session.deliveryInfo?.township || session.deliveryInfo?.city || null,
@@ -1195,6 +1197,13 @@ async function handleCallback(update) {
     });
     clearSession(chatId);
     await sendMessage(chatId, TEXT.orderSaved, { reply_markup: removeKeyboard() });
+    if (!adminNotified) {
+      await sendMessage(
+        chatId,
+        "Admin notification မရောက်နိုင်သေးပါဘူးရှင့်။ Order ကိုတော့ သိမ်းထားပြီးပါပြီ။ Admin Chat ID setup ကို စစ်ပေးပါမယ်။",
+        { reply_markup: mainMenuKeyboard() }
+      );
+    }
     return;
   }
 
@@ -1974,6 +1983,16 @@ async function handleMessage(update) {
   }
 
   if (session?.step === "customer_address") {
+    const textOrderSession = await buildOrderSessionFromText(text, message.from, session);
+    if (textOrderSession) {
+      setSession(chatId, textOrderSession);
+      await persistDraftOrder(message.from, textOrderSession, "order_intent");
+      await sendMessage(chatId, formatOrderSummary(textOrderSession), {
+        reply_markup: confirmKeyboard(),
+      });
+      return;
+    }
+
     if (!text || text.length < 8) {
       await sendMessage(chatId, "လိပ်စာကို အိမ်/လမ်းနံပတ်ပါအောင် နည်းနည်းပိုပြည့်စုံအောင် ပေးပေးပါနော်🥰");
       return;
@@ -1989,6 +2008,16 @@ async function handleMessage(update) {
   }
 
   if (session?.step === "customer_phone") {
+    const textOrderSession = await buildOrderSessionFromText(text, message.from, session);
+    if (textOrderSession) {
+      setSession(chatId, textOrderSession);
+      await persistDraftOrder(message.from, textOrderSession, "order_intent");
+      await sendMessage(chatId, formatOrderSummary(textOrderSession), {
+        reply_markup: confirmKeyboard(),
+      });
+      return;
+    }
+
     const phone = message.contact?.phone_number || text;
     if (!phone || (!message.contact && !looksLikePhone(phone))) {
       await sendMessage(chatId, "Phနံပတ်လေး မှန်အောင် ပြန်ပေးပေးပါနော်🥰");
