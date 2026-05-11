@@ -15,10 +15,10 @@ AI-powered Telegram ecommerce assistant for a Myanmar cosmetics shop.
 
 - Direct product buttons, not category-first browsing
 - Product photo detail view using `products.image_url`
-- Burmese AI assistant for product, usage, benefit, delivery, COD, and order questions
+- Burmese AI assistant for product, usage, benefit, delivery, payment, and order questions
 - Delivery-zone based fee and payment logic
-- Unknown delivery zones become `needs_review`, not automatic COD
-- COD/free delivery order calculation
+- Unknown delivery zones become `needs_review`, not automatic cash-on-delivery
+- Delivery/payment and free delivery order calculation
 - Customer session memory in Supabase
 - Saves orders and order items to Supabase
 - Admin Telegram order notifications
@@ -197,7 +197,7 @@ Draft carts are stored in `customer_sessions.draft_order` like:
   "city": "Hlegu",
   "delivery_fee": 4500,
   "total": 80500,
-  "payment_method": "COD",
+  "payment_method": "အိမ်ရောက်ငွေချေ",
   "status": "pending"
 }
 ```
@@ -215,7 +215,14 @@ Customer-facing payment labels:
 - `ကြိုလွှဲငွေချေ` for prepaid zones
 - `Admin confirm` when delivery zone is unknown
 
-Only Yangon, Mandalay, and Tachileik zones can be treated as eligible for `အိမ်ရောက်ငွေချေ`. Other cities should be prepaid/admin-confirm even if a customer asks for cash-on-delivery.
+Delivery fee/payment rules use `delivery_zones` as the source of truth:
+
+- Matching Yangon Region aliases: `4,800 Ks` and `အိမ်ရောက်ငွေချေ`
+- Matching Mandalay Region aliases: `4,800 Ks` and `အိမ်ရောက်ငွေချေ`
+- Matching Naypyitaw Region aliases: `4,800 Ks`; payment follows `delivery_zones.cod_available`
+- Other matched rows with `cod_available=true`: `6,000 Ks` and `အိမ်ရောက်ငွေချေ`
+- Matched rows with `cod_available=false`: `ကြိုလွှဲငွေချေ`
+- Unknown city/township: `Admin confirm`; no automatic delivery fee
 
 ## Admin Notification
 

@@ -96,7 +96,27 @@ const MANDALAY_ALIASES = [
   "ပုသိမ်ကြီး",
 ];
 
+const NAYPYITAW_ALIASES = [
+  "နေပြည်တော်",
+  "naypyitaw",
+  "nay pyi taw",
+  "ပျဉ်းမနား",
+  "ဇမ္ဗူသီရိ",
+  "ဒက္ခိဏသီရိ",
+  "ဥတ္တရသီရိ",
+  "ပုဗ္ဗသီရိ",
+  "ဇေယျာသီရိ",
+  "လယ်ဝေး",
+  "တပ်ကုန်း",
+];
+
 const TACHILEIK_ALIASES = ["တာချီလိတ်", "tachileik", "tachilek"];
+
+const REGION_4800_ALIASES = [
+  ...YANGON_ALIASES,
+  ...MANDALAY_ALIASES,
+  ...NAYPYITAW_ALIASES,
+];
 
 const TEXT = {
   start:
@@ -306,7 +326,7 @@ function formatProductPhotoCaption(product) {
     `စျေးနှုန်း: <b>${money(product.price)}</b>${
       product.unit ? ` / ${cleanHtml(product.unit)}` : ""
     }`,
-    `Delivery: ${cleanHtml(freeDeliveryText(product))}`,
+    `ပို့ခ: ${cleanHtml(freeDeliveryText(product))}`,
     benefits ? `အကျိုးကျေးဇူး: ${cleanHtml(benefits)}` : "",
     usage ? `အသုံးပြုပုံ: ${cleanHtml(usage)}` : "",
   ]
@@ -357,11 +377,11 @@ function formatLegacyOrderSummary(session) {
     `ပစ္စည်း: ${cleanHtml(product.name)}`,
     `အရေအတွက်: ${quantity}`,
     `Subtotal: ${money(totals.subtotal)}`,
-    `Delivery: ${
+    `ပို့ခ: ${
       totals.isFreeDelivery ? "Free Delivery" : money(totals.deliveryFee)
     }`,
     `စုစုပေါင်း: <b>${money(totals.total)}</b>`,
-    "Payment: အိမ်ရောက်ငွေချေ",
+    "ငွေချေမှု: အိမ်ရောက်ငွေချေ",
     phone ? `ဖုန်း: ${cleanHtml(phone)}` : "",
     address ? `လိပ်စာ: ${cleanHtml(address)}` : "",
   ]
@@ -408,15 +428,15 @@ function formatOrderSummary(session) {
     "",
     `Subtotal: ${money(totals.subtotal)}`,
     totals.freeDeliveryReason ? cleanHtml(totals.freeDeliveryReason) : "",
-    `Delivery: ${
+    `ပို့ခ: ${
       totals.deliveryFee === null
         ? "Admin confirm"
         : totals.isFreeDelivery
           ? "Free"
           : money(totals.deliveryFee)
     }`,
-    `Total: <b>${totals.deliveryFee === null ? "Admin confirm" : money(totals.total)}</b>`,
-    `Payment: ${cleanHtml(paymentMethod)}`,
+    `စုစုပေါင်း: <b>${totals.deliveryFee === null ? "Admin confirm" : money(totals.total)}</b>`,
+    `ငွေချေမှု: ${cleanHtml(paymentMethod)}`,
     `အိမ်ရောက်ငွေချေ: ${cleanHtml(codStatus)}`,
     "",
     "<b>Customer</b>",
@@ -480,6 +500,9 @@ function zoneTokens(zone) {
   if (MANDALAY_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
     builtInAliases.push(...MANDALAY_ALIASES);
   }
+  if (NAYPYITAW_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
+    builtInAliases.push(...NAYPYITAW_ALIASES);
+  }
   if (TACHILEIK_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
     builtInAliases.push(...TACHILEIK_ALIASES);
   }
@@ -489,20 +512,32 @@ function zoneTokens(zone) {
     .filter((token) => token.length >= 2);
 }
 
-function isCodCity(zone) {
+function zoneHasAnyAlias(zone, aliases) {
   const haystack = zoneTokens(zone).join(" ");
-  return [...YANGON_ALIASES, ...MANDALAY_ALIASES, ...TACHILEIK_ALIASES].some((alias) =>
+  return aliases.some((alias) =>
     haystack.includes(normalizeText(alias))
   );
 }
 
+function isRegion4800(zone) {
+  return zoneHasAnyAlias(zone, REGION_4800_ALIASES);
+}
+
+function isAutoCodRegion(zone) {
+  return zoneHasAnyAlias(zone, [...YANGON_ALIASES, ...MANDALAY_ALIASES]);
+}
+
 function normalizeDeliveryZone(zone) {
   if (!zone) return null;
-  const codAvailable = Boolean(zone.cod_available && isCodCity(zone));
+  const region4800 = isRegion4800(zone);
+  const codAvailable = Boolean(isAutoCodRegion(zone) || zone.cod_available);
+  const normalizedFee = region4800 ? 4800 : codAvailable ? 6000 : Number(zone.delivery_fee);
+
   return {
     ...zone,
     cod_available: codAvailable,
-    payment_method: codAvailable ? "COD" : zone.payment_method || "prepaid",
+    delivery_fee: Number.isFinite(normalizedFee) ? normalizedFee : null,
+    payment_method: codAvailable ? "အိမ်ရောက်ငွေချေ" : "ကြိုလွှဲငွေချေ",
   };
 }
 
@@ -1112,7 +1147,7 @@ async function handleHelpOrder(chatId) {
       "3. ဖုန်းနံပါတ်နှင့် လိပ်စာပေးပါ",
       "4. Admin မှ အတည်ပြုပြီး ပို့ဆောင်ပေးပါမယ်",
       "",
-      "Payment: အိမ်ရောက်ငွေချေ ရတဲ့မြို့တွေမှာ ပစ္စည်းရောက်မှ ငွေချေပေးပါရှင့်။",
+      "ငွေချေမှု: အိမ်ရောက်ငွေချေ ရတဲ့မြို့တွေမှာ ပစ္စည်းရောက်မှ ငွေချေပေးပါရှင့်။",
       "Free Delivery: Product တစ်ခုချင်းစီမှာ သတ်မှတ်ထားတဲ့ အရေအတွက်ပြည့်ရင် အလိုအလျောက်တွက်ပေးပါတယ်။",
     ].join("\n")
   );
