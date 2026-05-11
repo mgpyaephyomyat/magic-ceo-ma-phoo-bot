@@ -369,16 +369,14 @@ function shortText(value, maxLength = 130) {
 }
 
 function freeDeliveryText(product) {
-  const freeDeliveryQty = normalizeText(product.name).includes("bodywash")
-    ? 4
-    : Number(product.free_delivery_qty || 0);
+  const freeDeliveryQty = getProductFreeDeliveryQty(product);
   return freeDeliveryQty > 0
     ? `${freeDeliveryQty} ခုနှင့်အထက် Deli free`
     : "Deli free သတ်မှတ်ချက် မရှိသေးပါ";
 }
 
 function formatProduct(product) {
-  const freeDeliveryQty = Number(product.free_delivery_qty || 0);
+  const freeDeliveryQty = getProductFreeDeliveryQty(product);
   const freeText =
     freeDeliveryQty > 0
       ? `\n🚚 ${freeDeliveryQty} ခုနှင့်အထက် Deli free`
@@ -436,7 +434,7 @@ function formatBenefits(product) {
 
 function calculateOrder(product, quantity) {
   const subtotal = Number(product.price || 0) * quantity;
-  const freeDeliveryQty = Number(product.free_delivery_qty || 0);
+  const freeDeliveryQty = getProductFreeDeliveryQty(product);
   const isFreeDelivery = freeDeliveryQty > 0 && quantity >= freeDeliveryQty;
   const zoneDeliveryFee =
     arguments.length > 2 && arguments[2] && Number.isFinite(Number(arguments[2].delivery_fee))
@@ -1063,13 +1061,72 @@ function normalizeMyanmarDigits(value) {
   return String(value || "").replace(/[၀-၉]/g, (digit) => digits[digit] || digit);
 }
 
-function extractQuantity(text) {
+const QUANTITY_UNITS_PATTERN = "(?:ဘူး|ခု|ခဲ|set|sets|ဆက်|ဗူး)";
+const BURMESE_QUANTITY_WORDS = [
+  ["တစ်", 1],
+  ["တခု", 1],
+  ["တစ်ခု", 1],
+  ["တစ်ဘူး", 1],
+  ["တဘူး", 1],
+  ["နှစ်", 2],
+  ["နှစ်ဘူး", 2],
+  ["သုံး", 3],
+  ["သုံးဘူး", 3],
+  ["လေး", 4],
+  ["လေးဘူး", 4],
+  ["ငါး", 5],
+  ["ငါးဘူး", 5],
+  ["ဆယ်", 10],
+  ["ဆယ်ဘူး", 10],
+].sort((left, right) => right[0].length - left[0].length);
+
+function extractExplicitQuantity(text) {
   const normalized = normalizeMyanmarDigits(text);
   const parenRemoved = normalized.replace(/\([^)]*\)/g, " ");
+
+  const unitNumberMatch = parenRemoved.match(
+    new RegExp(`(?:^|\\s)(\\d{1,2})\\s*${QUANTITY_UNITS_PATTERN}`, "i")
+  );
+  if (unitNumberMatch) return Number(unitNumberMatch[1]);
+
+  const numberUnitMatch = parenRemoved.match(
+    new RegExp(`${QUANTITY_UNITS_PATTERN}\\s*(\\d{1,2})(?:\\s|$)`, "i")
+  );
+  if (numberUnitMatch) return Number(numberUnitMatch[1]);
+
+  for (const [word, quantity] of BURMESE_QUANTITY_WORDS) {
+    const escapedWord = escapeRegExp(word);
+    const wordHasUnit = new RegExp(QUANTITY_UNITS_PATTERN, "i").test(word);
+    const wordWithUnitPattern = wordHasUnit
+      ? new RegExp(escapedWord, "i")
+      : new RegExp(`${escapedWord}\\s*${QUANTITY_UNITS_PATTERN}|^\\s*${escapedWord}\\s*(?:ယူ|မှာ|$)`, "i");
+    if (wordWithUnitPattern.test(parenRemoved)) return quantity;
+  }
+
   const matches = [...parenRemoved.matchAll(/\d+/g)]
-    .map((match) => Number(match[0]))
+    .map((match) => match[0])
+    .filter((raw) => raw.length <= 2 && !raw.startsWith("09"))
+    .map((raw) => Number(raw))
     .filter((value) => Number.isInteger(value) && value > 0 && value < 100);
-  return matches[0] || 1;
+  return matches[0] || null;
+}
+
+function extractQuantity(text, fallback = 1) {
+  return extractExplicitQuantity(text) || fallback;
+}
+
+function hasQuantityCue(text) {
+  const normalized = normalizeMyanmarDigits(text);
+  const unitPattern = new RegExp(`\\d{1,2}\\s*${QUANTITY_UNITS_PATTERN}|${QUANTITY_UNITS_PATTERN}\\s*\\d{1,2}`, "i");
+  if (unitPattern.test(normalized)) return true;
+  return BURMESE_QUANTITY_WORDS.some(([word]) => {
+    const escapedWord = escapeRegExp(word);
+    const wordHasUnit = new RegExp(QUANTITY_UNITS_PATTERN, "i").test(word);
+    const pattern = wordHasUnit
+      ? new RegExp(escapedWord, "i")
+      : new RegExp(`${escapedWord}\\s*${QUANTITY_UNITS_PATTERN}|^\\s*${escapedWord}\\s*(?:ယူ|မှာ|$)`, "i");
+    return pattern.test(normalized);
+  });
 }
 
 function productToCartItem(product, quantity = 1) {
@@ -1116,26 +1173,78 @@ function getSessionItems(session) {
   return [];
 }
 
-function isCartFreeDelivery(items) {
-  const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+function withSessionQuantity(session, quantity) {
+  const product = session.product || getSessionItems(session)[0]?.product;
+  if (!product) return session;
 
-  if (items.length === 1) {
-    const item = items[0];
-    const productName = normalizeText(item.product_name);
-    const freeDeliveryQty = productName.includes("bodywash")
-      ? 4
-      : Number(item.product?.free_delivery_qty || 0);
-    return freeDeliveryQty > 0 && Number(item.quantity || 0) >= freeDeliveryQty;
+  return {
+    ...session,
+    product,
+    quantity,
+    items: mergeCartItems([
+      ...getSessionItems(session).filter((item) => String(item.product_id) !== String(product.id)),
+      productToCartItem(product, quantity),
+    ]),
+  };
+}
+
+function myanmarNumber(value) {
+  const digits = { 0: "၀", 1: "၁", 2: "၂", 3: "၃", 4: "၄", 5: "၅", 6: "၆", 7: "၇", 8: "၈", 9: "၉" };
+  return String(value).replace(/\d/g, (digit) => digits[digit] || digit);
+}
+
+function getProductFreeDeliveryQty(productOrItem) {
+  const product = productOrItem?.product || productOrItem;
+  const name = normalizeText(
+    `${product?.name || productOrItem?.product_name || ""} ${productDisplayName(product || productOrItem?.product_name)}`
+  );
+
+  if (name.includes("bodywash") || name.includes(normalizeText("ရေချိုးဆပ်ပြာ"))) return 3;
+  if (name.includes("toothpaste") || name.includes(normalizeText("သွားတိုက်ဆေး"))) return 2;
+  if (name.includes("whitening soap") || name.includes("soap") || name.includes(normalizeText("ဆပ်ပြာခဲ"))) return 4;
+
+  return Number(product?.free_delivery_qty || productOrItem?.free_delivery_qty || 0);
+}
+
+function freeDeliveryReasonForItem(item) {
+  const requiredQty = getProductFreeDeliveryQty(item);
+  const quantity = Number(item.quantity || 0);
+  if (!requiredQty || quantity < requiredQty) return "";
+
+  const name = normalizeText(`${item.product_name || ""} ${productDisplayName(item.product || item.product_name)}`);
+  if (name.includes("bodywash") || name.includes(normalizeText("ရေချိုးဆပ်ပြာ"))) {
+    return `ရေချိုးဆပ်ပြာ ${myanmarNumber(requiredQty)}ဗူးယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰`;
   }
+  if (name.includes("toothpaste") || name.includes(normalizeText("သွားတိုက်ဆေး"))) {
+    return `သွားတိုက်ဆေး ${myanmarNumber(requiredQty)}setယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰`;
+  }
+  if (name.includes("whitening soap") || name.includes("soap") || name.includes(normalizeText("ဆပ်ပြာခဲ"))) {
+    return `ဆပ်ပြာခဲ ${myanmarNumber(requiredQty)}ခဲယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰`;
+  }
+  return `${productDisplayName(item.product || item.product_name)} ${myanmarNumber(requiredQty)}ခုယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰`;
+}
 
-  return totalQuantity >= 3;
+function getCartFreeDeliveryReason(items) {
+  const itemReason = items.map(freeDeliveryReasonForItem).find(Boolean);
+  if (itemReason) return itemReason;
+
+  const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+  if (items.length > 1 && totalQuantity >= 3) {
+    return "စုစုပေါင်း ၃ခုနှင့်အထက်ယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰";
+  }
+  return "";
+}
+
+function isCartFreeDelivery(items) {
+  return Boolean(getCartFreeDeliveryReason(items));
 }
 
 function calculateCart(items, deliveryInfo = null) {
   const subtotal = items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
   const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const productTypes = new Set(items.map((item) => String(item.product_id))).size;
-  const isFreeDelivery = isCartFreeDelivery(items);
+  const freeDeliveryReason = getCartFreeDeliveryReason(items);
+  const isFreeDelivery = Boolean(freeDeliveryReason);
   const zoneFee = deliveryInfo && Number.isFinite(Number(deliveryInfo.delivery_fee))
     ? Number(deliveryInfo.delivery_fee)
     : null;
@@ -1148,11 +1257,7 @@ function calculateCart(items, deliveryInfo = null) {
     totalQuantity,
     productTypes,
     isFreeDelivery,
-    freeDeliveryReason: isFreeDelivery
-      ? totalQuantity >= 3 && items.length > 1
-        ? "၃ခုနှင့်အထက်ယူထားလို့ Deli free ရပါတယ်ရှင့် 🥰"
-        : "Deli free ရပါတယ်ရှင့် 🥰"
-      : "",
+    freeDeliveryReason,
   };
 }
 
@@ -1727,20 +1832,13 @@ function findProductByAiName(products, name, originalText = "") {
 function extractQuantityNearAlias(text, alias) {
   const normalized = normalizeMyanmarDigits(text);
   const lower = normalized.toLowerCase();
-  const aliasIndex = lower.indexOf(alias.toLowerCase());
+  const normalizedAlias = normalizeMyanmarDigits(alias).toLowerCase();
+  const aliasIndex = lower.indexOf(normalizedAlias);
   if (aliasIndex === -1) return 1;
 
-  const after = lower.slice(aliasIndex + alias.length, aliasIndex + alias.length + 40);
+  const after = lower.slice(aliasIndex + normalizedAlias.length, aliasIndex + normalizedAlias.length + 40);
   const before = lower.slice(Math.max(0, aliasIndex - 20), aliasIndex);
-  const afterMatch = after.match(/\d+/);
-  if (afterMatch) return Math.max(1, Number(afterMatch[0]) || 1);
-
-  const beforeMatches = [...before.matchAll(/\d+/g)];
-  if (beforeMatches.length > 0) {
-    return Math.max(1, Number(beforeMatches[beforeMatches.length - 1][0]) || 1);
-  }
-
-  return 1;
+  return extractExplicitQuantity(after) || extractExplicitQuantity(before) || 1;
 }
 
 function extractCartItemsFromText(text, products) {
@@ -1931,7 +2029,7 @@ async function answerWithOpenRouter(chatId, text) {
     "If the customer asks for usage, explain from usage_instruction only.",
     "If the customer asks for benefits, explain from benefits only.",
     "If the customer asks about price, mention product price and unit only from the data.",
-    `Delivery rule: if product.free_delivery_qty is available and customer quantity is at least that number, free delivery applies. Otherwise delivery fee is ${deliveryFee} Ks.`,
+    "Deli free rules: ရေချိုးဆပ်ပြာဗူး(အဝါ)/BodyWash quantity >= 3, သွားတိုက်ဆေး၂ဗူး1set/Toothpaste Set quantity >= 2 sets, ဆပ်ပြာခဲ/Whitening Soap quantity >= 4, mixed cart total quantity >= 3. Other products use product.free_delivery_qty if available.",
     "Delivery and payment must use delivery_zones data. If zone is unknown, say staff will confirm delivery fee and payment. Use Burmese labels: အိမ်ရောက်ငွေချေ or ကြိုလွှဲငွေချေ.",
     "If the customer wants to buy or order, tell them to choose the product and press the 'မှာမယ်' order button.",
     "If customer mentions multiple products, answer for all of them and explain mixed-cart free delivery if total quantity is 3 or more.",
@@ -2213,12 +2311,45 @@ async function handleMessage(update) {
     }
   }
 
+  if (session?.step === "quantity") {
+    const quantity = text ? extractQuantity(text, null) : null;
+    if (!quantity) {
+      await sendMessage(chatId, "အရေအတွက်လေး 1, 2, 3 ဒါမှမဟုတ် ၂ဘူး စသဖြင့် ပြန်ပေးပေးပါနော်🥰", {
+        reply_markup: quantityKeyboard(session.product.id),
+      });
+      return;
+    }
+
+    const nextSession = {
+      ...withSessionQuantity(session, quantity),
+      step: "customer_info",
+    };
+    setSession(chatId, nextSession);
+    await sendMessage(chatId, orderInfoPrompt(nextSession), {
+      reply_markup: quantityKeyboard(nextSession.product.id),
+    });
+    return;
+  }
+
   if (session?.step === "customer_info") {
     if (!text) {
       await sendMessage(chatId, orderInfoPrompt(session), {
         reply_markup: quantityKeyboard(session.product.id),
       });
       return;
+    }
+
+    if (hasQuantityCue(text) && !looksLikePhone(text)) {
+      const quantity = extractQuantity(text, null);
+      if (quantity) {
+        const nextSession = withSessionQuantity(session, quantity);
+        setSession(chatId, nextSession);
+        await persistDraftOrder(message.from, nextSession, "order_intent");
+        await sendMessage(chatId, orderInfoPrompt(nextSession), {
+          reply_markup: quantityKeyboard(nextSession.product.id),
+        });
+        return;
+      }
     }
 
     const textOrderSession = await buildOrderSessionFromText(text, message.from, session);
