@@ -193,12 +193,8 @@ function mainMenuKeyboard() {
 function productActionsKeyboard(productId) {
   return {
     inline_keyboard: [
-      [{ text: "မှာယူမယ်", callback_data: `order:${productId}` }],
-      [
-        { text: "အသုံးပြုပုံ", callback_data: `usage:${productId}` },
-        { text: "ကောင်းကျိုး", callback_data: `benefits:${productId}` },
-      ],
-      [{ text: "ပစ္စည်းများ", callback_data: "products" }],
+      [{ text: "မှာမယ်", callback_data: `order:${productId}` }],
+      [{ text: "မီနူးများ", callback_data: "products" }],
     ],
   };
 }
@@ -374,8 +370,8 @@ function formatProduct(product) {
 }
 
 function formatProductPhotoCaption(product) {
-  const benefits = shortText(product.benefits || product.description, 120);
-  const usage = shortText(product.usage_instruction, 120);
+  const benefits = shortText(product.benefits || product.description, 220);
+  const usage = shortText(product.usage_instruction, 220);
 
   return [
     `<b>${cleanHtml(productDisplayName(product))}</b>`,
@@ -1280,22 +1276,6 @@ async function handleCallback(update) {
     return;
   }
 
-  if (data.startsWith("usage:")) {
-    const product = await getProduct(data.slice(6));
-    await sendMessage(chatId, formatUsage(product), {
-      reply_markup: productActionsKeyboard(product.id),
-    });
-    return;
-  }
-
-  if (data.startsWith("benefits:")) {
-    const product = await getProduct(data.slice(9));
-    await sendMessage(chatId, formatBenefits(product), {
-      reply_markup: productActionsKeyboard(product.id),
-    });
-    return;
-  }
-
   if (data.startsWith("order:")) {
     const product = await getProduct(data.slice(6));
     const session = {
@@ -1906,7 +1886,7 @@ async function answerWithOpenRouter(chatId, text) {
     "If the customer asks about price, mention product price and unit only from the data.",
     `Delivery rule: if product.free_delivery_qty is available and customer quantity is at least that number, free delivery applies. Otherwise delivery fee is ${deliveryFee} Ks.`,
     "Delivery and payment must use delivery_zones data. If zone is unknown, say staff will confirm delivery fee and payment. Use Burmese labels: အိမ်ရောက်ငွေချေ or ကြိုလွှဲငွေချေ.",
-    "If the customer wants to buy or order, tell them to choose the product and press the 'မှာယူမယ်' order button.",
+    "If the customer wants to buy or order, tell them to choose the product and press the 'မှာမယ်' order button.",
     "If customer mentions multiple products, answer for all of them and explain mixed-cart free delivery if total quantity is 3 or more.",
     "Do not make medical guarantees. For acne/skin concerns, use gentle language like 'အထောက်အကူဖြစ်နိုင်ပါတယ်' and suggest patch testing if skin is sensitive.",
     "If no available product fits the question, say it is not currently available and invite them to choose from the menu.",
@@ -1948,8 +1928,8 @@ async function answerWithOpenRouter(chatId, text) {
     if (!reply) throw new Error("OpenRouter returned an empty response");
 
     const suffix =
-      wantsToOrder && !reply.includes("မှာယူမယ်")
-        ? "\n\nမှာယူချင်ရင် product ကိုရွေးပြီး “မှာယူမယ်” button ကိုနှိပ်ပေးပါရှင့်။"
+      wantsToOrder && !reply.includes("မှာမယ်")
+        ? "\n\nမှာယူချင်ရင် product ကိုရွေးပြီး “မှာမယ်” button ကိုနှိပ်ပေးပါရှင့်။"
         : "";
 
     await sendMessage(chatId, cleanHtml(`${reply}${suffix}`), {
@@ -2066,7 +2046,7 @@ async function answerBurmeseQuestion(chatId, text) {
   ) {
     await sendMessage(
       chatId,
-      "Product တစ်ခုချင်းစီမှာ “အသုံးပြုပုံ” button ကိုနှိပ်ပြီး ကြည့်နိုင်ပါတယ်ရှင့်။"
+      "Product တစ်ခုချင်းစီမှာ စျေးနှုန်း၊ Deli free, အသုံးပြုပုံနဲ့ ကောင်းကျိုးကို တခါတည်း ဖော်ပြပေးထားပါတယ်ရှင့်။"
     );
     return true;
   }
@@ -2083,7 +2063,7 @@ async function answerBurmeseQuestion(chatId, text) {
   ) {
     await sendMessage(
       chatId,
-      "Product တစ်ခုချင်းစီမှာ “ကောင်းကျိုး” button ကိုနှိပ်ပြီး ဖတ်နိုင်ပါတယ်ရှင့်။"
+      "Product ကိုရွေးလိုက်တာနဲ့ ကောင်းကျိုးနဲ့ အသုံးပြုပုံကို တခါတည်း ဖတ်နိုင်ပါတယ်ရှင့်။"
     );
     return true;
   }
@@ -2131,7 +2111,7 @@ async function answerBurmeseQuestion(chatId, text) {
   ) {
     await sendMessage(
       chatId,
-      "မှာယူမယ်ဆို ပစ္စည်းရွေးပြီး “မှာယူမယ်” button ကိုနှိပ်ပေးပါရှင့်။"
+      "မှာယူမယ်ဆို ပစ္စည်းရွေးပြီး “မှာမယ်” button ကိုနှိပ်ပေးပါရှင့်။"
     );
     await showCategories(chatId);
     return true;
