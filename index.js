@@ -265,6 +265,16 @@ function confirmKeyboard() {
   };
 }
 
+function savedCustomerInfoKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "ဟုတ်ပါတယ်", callback_data: "use_saved_info" }],
+      [{ text: "လိပ်စာအသစ်ပေးမယ်", callback_data: "new_customer_info" }],
+      [{ text: "မလုပ်တော့ပါ", callback_data: "cancel" }],
+    ],
+  };
+}
+
 function removeKeyboard() {
   return { remove_keyboard: true };
 }
@@ -731,16 +741,18 @@ async function updateCustomerSession(telegramUserId, patch) {
 }
 
 async function persistDraftOrder(from, session, currentIntent = "draft_order") {
-  await updateCustomerSession(from.id, {
+  const patch = {
     last_product: getSessionItems(session).map((item) => item.product_name).join(", ") || null,
     last_city: session.city || session.deliveryInfo?.township || session.deliveryInfo?.city || null,
-    customer_name: session.customerName || null,
-    phone: session.phone || null,
-    address: session.address || null,
     interests: getSessionItems(session).map((item) => item.product_name),
     current_intent: currentIntent,
     draft_order: cartDraftFromSession(session),
-  });
+  };
+  if (sessionCustomerName(session)) patch.customer_name = sessionCustomerName(session);
+  if (session.phone) patch.phone = session.phone;
+  if (session.address) patch.address = session.address;
+
+  await updateCustomerSession(from.id, patch);
 }
 
 function sortProductsForMenu(products) {
@@ -965,14 +977,16 @@ function orderInfoPrompt(session) {
     items.length > 0
       ? items.map((item) => `${productDisplayName(item.product || item.product_name)} x${item.quantity}`).join(", ")
       : `အရေအတွက်: ${session.quantity || 1} ခု`;
+  const missing = missingCustomerInfoFields(session);
+  const missingLines = missing.length > 0
+    ? missing.map((field) => `* ${field}`).join("\n")
+    : "* အချက်အလက်ပြည့်စုံပါပြီ";
 
   return [
     "ဟုတ်ညီမလေး🥰",
     "မဖူးကို",
     "",
-    "* နာမည်",
-    "* လိပ်စာ(အိမ်/လမ်းနံပတ်ပါအပါ)",
-    "* Phနံပတ်",
+    missingLines,
     "",
     "လေးပေးထားပေးနော်🥰🥰",
     "",
@@ -995,21 +1009,99 @@ function parseCustomerInfo(text, product = null) {
   const phoneIndex = lines.findIndex((line) => /(?:\+?95|09)[\d\s().-]{5,}/.test(line));
   const phoneMatch = phoneIndex >= 0 ? lines[phoneIndex].match(/(?:\+?95|09)[\d\s().-]{5,}/) : null;
   const phone = phoneMatch ? phoneMatch[0].trim() : "";
+  const phoneLine = phoneIndex >= 0 ? lines[phoneIndex] : "";
+  const beforePhone = phoneMatch ? phoneLine.slice(0, phoneMatch.index).trim() : "";
+  const afterPhone = phoneMatch ? phoneLine.slice(phoneMatch.index + phoneMatch[0].length).trim() : "";
   const otherLines = lines.filter((_, index) => index !== phoneIndex);
-  const rawCustomerName = phoneIndex === 0 ? "" : otherLines[0] || "";
+  const rawCustomerName = beforePhone || (phoneIndex === 0 ? "" : otherLines[0] || "");
   const customerName = product
     ? cleanCustomerNameLine(rawCustomerName, product)
     : rawCustomerName;
   const address =
-    phoneIndex >= 0
+    afterPhone ||
+    (phoneIndex >= 0
       ? lines.slice(phoneIndex + 1).join(", ").trim()
-      : otherLines.slice(1).join(", ").trim();
+      : otherLines.slice(1).join(", ").trim());
 
   return { customerName, address, phone };
 }
 
+function sessionCustomerName(session) {
+  return session?.customerName || session?.customer_name || "";
+}
+
+function missingCustomerInfoFields(session) {
+  const missing = [];
+  if (!sessionCustomerName(session)) missing.push("နာမည်");
+  if (!session?.address) missing.push("လိပ်စာ(အိမ်/လမ်းနံပတ်ပါအပါ)");
+  if (!session?.phone) missing.push("Phနံပတ်");
+  return missing;
+}
+
 function hasCustomerInfo(session) {
-  return Boolean(session?.customerName && session?.address && session?.phone);
+  return Boolean(sessionCustomerName(session) && session?.address && session?.phone);
+}
+
+function isUsefulAddress(value) {
+  const text = String(value || "").trim();
+  if (text.length < 8) return false;
+  if (looksLikePhone(text)) return false;
+  if (hasQuantityCue(text) && text.length < 25) return false;
+  const normalized = normalizeText(text);
+  return !includesAny(normalized, ["မှာမယ်", "ယူမယ်", "order", "buy"]);
+}
+
+function mergeCustomerInfo(session, extractedInfo = {}) {
+  const next = { ...(session || {}) };
+  const customerName = extractedInfo.customerName || extractedInfo.customer_name;
+
+  if (customerName && !isUsefulAddress(customerName) && !looksLikePhone(customerName)) {
+    next.customerName = customerName;
+  }
+  if (extractedInfo.phone && looksLikePhone(extractedInfo.phone)) {
+    next.phone = extractedInfo.phone;
+  }
+  if (extractedInfo.address && isUsefulAddress(extractedInfo.address)) {
+    next.address = extractedInfo.address;
+  }
+
+  return next;
+}
+
+function sessionFromStoredCustomerInfo(session, storedSession) {
+  if (!storedSession) return session;
+  return mergeCustomerInfo(session, {
+    customer_name: storedSession.customer_name,
+    phone: storedSession.phone,
+    address: storedSession.address,
+  });
+}
+
+async function completeOrderIfCustomerInfoReady(chatId, from, session, rawText = "") {
+  if (!hasCustomerInfo(session)) return false;
+
+  const deliveryInfo = session.deliveryInfo || await getDeliveryInfo(
+    [rawText, session.city, session.address].filter(Boolean).join("\n")
+  );
+  const nextSession = {
+    ...session,
+    step: "confirm",
+    customerName: sessionCustomerName(session),
+    deliveryInfo,
+    city: deliveryInfo
+      ? [deliveryInfo.city, deliveryInfo.township].filter(Boolean).join(" / ")
+      : session.city,
+    paymentMethod: getPaymentLabel(deliveryInfo),
+  };
+
+  setSession(chatId, nextSession);
+  if (from?.id) {
+    await persistDraftOrder(from, nextSession, "order_intent");
+  }
+  await sendMessage(chatId, formatOrderSummary(nextSession), {
+    reply_markup: confirmKeyboard(),
+  });
+  return true;
 }
 
 function isCancelText(text) {
@@ -1312,7 +1404,10 @@ function cleanCustomerNameLine(line, productOrProducts) {
   }
 
   cleaned = cleaned
-    .replace(/\b(x|set|ဘူး|ခု|နဲ့|ရယ်|ယူမယ်|မှာမယ်)\b/gi, " ")
+    .replace(new RegExp(`\\d+\\s*${QUANTITY_UNITS_PATTERN}`, "gi"), " ")
+    .replace(new RegExp(`${QUANTITY_UNITS_PATTERN}\\s*\\d+`, "gi"), " ")
+    .replace(/(ယူမယ်|ယူမယ်ရှင့်|ယူမယ်ရှင့်|မှာမယ်|မှာမယ်ရှင့်|မှာမယ်ရှင့်|လိုချင်|order|buy)/gi, " ")
+    .replace(/\b(x|set|ဘူး|ခု|နဲ့|ရယ်)\b/gi, " ")
     .replace(/\d+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -1339,12 +1434,13 @@ async function buildOrderSessionFromText(text, from, existingSession = null) {
     text,
     items.map((item) => item.product)
   );
-  if (!parsed.phone || !parsed.address) return null;
-  const deliveryInfo = await getDeliveryInfo(`${text}\n${parsed.address}`);
+  const mergedInfo = mergeCustomerInfo(existingSession || {}, parsed);
+  if (!hasCustomerInfo(mergedInfo)) return null;
+  const deliveryInfo = await getDeliveryInfo(`${text}\n${mergedInfo.address}`);
   const city =
     deliveryInfo
       ? [deliveryInfo.city, deliveryInfo.township].filter(Boolean).join(" / ")
-      : parsed.address.split(/[,\s]+/).find((part) => part.length > 2) || "";
+      : mergedInfo.address.split(/[,\s]+/).find((part) => part.length > 2) || "";
 
   return {
     ...(existingSession || {}),
@@ -1352,9 +1448,9 @@ async function buildOrderSessionFromText(text, from, existingSession = null) {
     product,
     quantity: items[0]?.quantity || 1,
     items,
-    customerName: parsed.customerName || existingSession?.customerName || from.first_name || "",
-    phone: parsed.phone,
-    address: parsed.address,
+    customerName: sessionCustomerName(mergedInfo) || from.first_name || "",
+    phone: mergedInfo.phone,
+    address: mergedInfo.address,
     city,
     deliveryInfo,
     paymentMethod: getPaymentLabel(deliveryInfo),
@@ -1428,16 +1524,55 @@ async function handleCallback(update) {
     return;
   }
 
+  if (data === "use_saved_info") {
+    const session = getSession(chatId);
+    if (!session || !hasCustomerInfo(session)) {
+      await showCategories(chatId, "သိမ်းထားတဲ့ လိပ်စာအချက်အလက် မတွေ့သေးပါဘူးရှင့်။ ပစ္စည်းလေး ပြန်ရွေးပေးပါနော်။");
+      return;
+    }
+    await completeOrderIfCustomerInfoReady(chatId, from, session);
+    return;
+  }
+
+  if (data === "new_customer_info") {
+    const session = getSession(chatId);
+    if (!session) {
+      await showCategories(chatId, "အော်ဒါအချက်အလက် မတွေ့တော့ပါဘူးရှင့်။ ပစ္စည်းလေး ပြန်ရွေးပေးပါနော်။");
+      return;
+    }
+    const nextSession = {
+      ...session,
+      step: "customer_address",
+      address: "",
+      deliveryInfo: null,
+      city: null,
+    };
+    setSession(chatId, nextSession);
+    await persistDraftOrder(from, nextSession, "order_intent");
+    await sendMessage(chatId, "လိပ်စာအသစ်ကို အိမ်/လမ်းနံပတ်ပါအောင် ပေးပေးပါနော်🥰");
+    return;
+  }
+
   if (data.startsWith("order:")) {
     const product = await getProduct(data.slice(6));
-    const session = {
+    const storedSession = await getCustomerSession(from.id);
+    const session = sessionFromStoredCustomerInfo({
       step: "customer_info",
       product,
       quantity: 1,
       items: [productToCartItem(product, 1)],
       from,
-    };
+    }, storedSession);
     setSession(chatId, session);
+    await persistDraftOrder(from, session, "order_intent");
+
+    if (hasCustomerInfo(session)) {
+      await sendMessage(chatId, "အရင်လိပ်စာနဲ့ပဲပို့ပေးရမလားရှင့်?", {
+        reply_markup: savedCustomerInfoKeyboard(),
+      });
+      return;
+    }
+
     await sendMessage(chatId, orderInfoPrompt(session), {
       reply_markup: quantityKeyboard(product.id),
     });
@@ -1963,6 +2098,7 @@ async function handleAiAssistant(chatId, from, text) {
       return true;
     }
 
+    const hasFreshCustomerInfo = Boolean(intent.customer_name || intent.phone || intent.address);
     const session = {
       step: "customer_info",
       product,
@@ -1978,11 +2114,15 @@ async function handleAiAssistant(chatId, from, text) {
     };
 
     if (hasCustomerInfo(session)) {
-      session.step = "confirm";
       setSession(chatId, session);
-      await sendMessage(chatId, formatOrderSummary(session), {
-        reply_markup: confirmKeyboard(),
-      });
+      await persistDraftOrder(from, session, "order_intent");
+      if (!hasFreshCustomerInfo && storedSession?.customer_name && storedSession?.phone && storedSession?.address) {
+        await sendMessage(chatId, "အရင်လိပ်စာနဲ့ပဲပို့ပေးရမလားရှင့်?", {
+          reply_markup: savedCustomerInfoKeyboard(),
+        });
+        return true;
+      }
+      await completeOrderIfCustomerInfoReady(chatId, from, session, text);
       return true;
     }
 
@@ -2320,11 +2460,16 @@ async function handleMessage(update) {
       return;
     }
 
-    const nextSession = {
+    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
+    const nextSession = mergeCustomerInfo({
       ...withSessionQuantity(session, quantity),
       step: "customer_info",
-    };
+    }, parsed);
+    if (await completeOrderIfCustomerInfoReady(chatId, message.from, nextSession, text)) {
+      return;
+    }
     setSession(chatId, nextSession);
+    await persistDraftOrder(message.from, nextSession, "order_intent");
     await sendMessage(chatId, orderInfoPrompt(nextSession), {
       reply_markup: quantityKeyboard(nextSession.product.id),
     });
@@ -2342,7 +2487,11 @@ async function handleMessage(update) {
     if (hasQuantityCue(text) && !looksLikePhone(text)) {
       const quantity = extractQuantity(text, null);
       if (quantity) {
-        const nextSession = withSessionQuantity(session, quantity);
+        const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
+        const nextSession = mergeCustomerInfo(withSessionQuantity(session, quantity), parsed);
+        if (await completeOrderIfCustomerInfoReady(chatId, message.from, nextSession, text)) {
+          return;
+        }
         setSession(chatId, nextSession);
         await persistDraftOrder(message.from, nextSession, "order_intent");
         await sendMessage(chatId, orderInfoPrompt(nextSession), {
@@ -2362,25 +2511,17 @@ async function handleMessage(update) {
       return;
     }
 
-    const parsed = parseCustomerInfo(text, session.product);
-    if (parsed.customerName && parsed.address && parsed.phone) {
-      const deliveryInfo = await getDeliveryInfo(`${text}\n${parsed.address}`);
-      const nextSession = {
-        ...session,
-        step: "confirm",
-        customerName: parsed.customerName,
-        address: parsed.address,
-        phone: parsed.phone,
-        deliveryInfo,
-        city: deliveryInfo
-          ? [deliveryInfo.city, deliveryInfo.township].filter(Boolean).join(" / ")
-          : session.city,
-        paymentMethod: getPaymentLabel(deliveryInfo),
-      };
+    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
+    const nextSession = mergeCustomerInfo(session, parsed);
+    if (hasCustomerInfo(nextSession)) {
+      await completeOrderIfCustomerInfoReady(chatId, message.from, nextSession, text);
+      return;
+    }
+    if (nextSession.customerName || nextSession.phone || nextSession.address) {
       setSession(chatId, nextSession);
       await persistDraftOrder(message.from, nextSession, "order_intent");
-      await sendMessage(chatId, formatOrderSummary(nextSession), {
-        reply_markup: confirmKeyboard(),
+      await sendMessage(chatId, orderInfoPrompt(nextSession), {
+        reply_markup: quantityKeyboard(nextSession.product.id),
       });
       return;
     }
@@ -2405,16 +2546,30 @@ async function handleMessage(update) {
       return;
     }
 
+    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
+    const mergedSession = mergeCustomerInfo(session, parsed);
+    if (await completeOrderIfCustomerInfoReady(chatId, message.from, mergedSession, text)) {
+      return;
+    }
+    if (mergedSession.phone && !mergedSession.address) {
+      setSession(chatId, mergedSession);
+      await persistDraftOrder(message.from, mergedSession, "order_intent");
+      await sendMessage(chatId, "လိပ်စာအပြည့်အစုံလေး ပေးပေးပါနော်🥰");
+      return;
+    }
+
     if (!text || text.length < 8) {
       await sendMessage(chatId, "လိပ်စာကို အိမ်/လမ်းနံပတ်ပါအောင် နည်းနည်းပိုပြည့်စုံအောင် ပေးပေးပါနော်🥰");
       return;
     }
 
-    setSession(chatId, {
+    const nextSession = {
       ...session,
       step: "customer_phone",
       address: text,
-    });
+    };
+    setSession(chatId, nextSession);
+    await persistDraftOrder(message.from, nextSession, "order_intent");
     await sendMessage(chatId, "Phနံပတ်လေး ပေးပေးပါနော်🥰");
     return;
   }
@@ -2427,6 +2582,12 @@ async function handleMessage(update) {
       await sendMessage(chatId, formatOrderSummary(textOrderSession), {
         reply_markup: confirmKeyboard(),
       });
+      return;
+    }
+
+    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
+    const mergedSession = mergeCustomerInfo(session, parsed);
+    if (await completeOrderIfCustomerInfoReady(chatId, message.from, mergedSession, text)) {
       return;
     }
 
