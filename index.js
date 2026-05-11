@@ -122,6 +122,18 @@ const YANGON_ALIASES = [
   "bahan",
 ];
 
+const FAR_YANGON_ALIASES = [
+  "ထန်းတပင်",
+  "တိုက်ကြီး",
+  "ကျောက်တန်း",
+  "ခရမ်း",
+  "သုံးခွ",
+  "တွံတေး",
+  "ဒလ",
+  "ကော့မှူး",
+  "ကွမ်းခြံကုန်း",
+];
+
 const MANDALAY_ALIASES = [
   "မန္တလေး",
   "mandalay",
@@ -141,6 +153,27 @@ const MANDALAY_ALIASES = [
   "patheingyi",
 ];
 
+const FAR_MANDALAY_ALIASES = [
+  "ပလိပ်",
+  "မြစ်ငယ်",
+  "ကျောက်ဆည်",
+  "မြစ်သား",
+  "ကူမဲ",
+  "စဉ့်ကိုင်",
+  "အုန်းချော",
+  "သာစည်",
+  "ပျော်ဘွယ်",
+  "မြင်းခြံ",
+  "ရမည်းသင်း",
+  "မိတ္ထီလာ",
+  "ကျောက်ပန်းတောင်း",
+  "ညောင်ဦး",
+  "ပုဂံ",
+  "မတ္တရာ",
+  "မလှိင်",
+  "ဝမ်းတွင်း",
+];
+
 const NAYPYITAW_ALIASES = [
   "နေပြည်တော်",
   "naypyitaw",
@@ -157,10 +190,9 @@ const NAYPYITAW_ALIASES = [
 
 const TACHILEIK_ALIASES = ["တာချီလိတ်", "tachileik", "tachilek"];
 
-const REGION_4800_ALIASES = [
-  ...YANGON_ALIASES,
-  ...MANDALAY_ALIASES,
-  ...NAYPYITAW_ALIASES,
+const FAR_ZONE_CITY_ALIASES = [
+  "ရန်ကုန်အဝေးမြို့နယ်များ",
+  "မန္တလေးအဝေးမြို့များ",
 ];
 
 const TEXT = {
@@ -533,16 +565,35 @@ async function getDeliveryZones() {
   return data || [];
 }
 
+function isFarYangonZone(zone) {
+  const city = normalizeText(zone?.city);
+  return city.includes(normalizeText("ရန်ကုန်အဝေးမြို့နယ်များ"));
+}
+
+function isFarMandalayZone(zone) {
+  const city = normalizeText(zone?.city);
+  return city.includes(normalizeText("မန္တလေးအဝေးမြို့များ"));
+}
+
+function isFarDeliveryZone(zone) {
+  const city = normalizeText(zone?.city);
+  return FAR_ZONE_CITY_ALIASES.some((alias) => city.includes(normalizeText(alias)));
+}
+
 function zoneTokens(zone) {
   const aliases = Array.isArray(zone.aliases) ? zone.aliases : String(zone.aliases || "").split(",");
   const base = [zone.city, zone.township, zone.note, ...aliases];
   const normalizedBase = normalizeText(base.join(" "));
   const builtInAliases = [];
 
-  if (YANGON_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
+  if (isFarYangonZone(zone)) {
+    builtInAliases.push(...FAR_YANGON_ALIASES);
+  } else if (YANGON_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
     builtInAliases.push(...YANGON_ALIASES);
   }
-  if (MANDALAY_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
+  if (isFarMandalayZone(zone)) {
+    builtInAliases.push(...FAR_MANDALAY_ALIASES);
+  } else if (MANDALAY_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
     builtInAliases.push(...MANDALAY_ALIASES);
   }
   if (NAYPYITAW_ALIASES.some((alias) => normalizedBase.includes(normalizeText(alias)))) {
@@ -582,10 +633,11 @@ function getZoneMatchCandidates(zones, normalizedInput) {
         zone,
         alias,
         score: alias.length,
+        priority: isFarDeliveryZone(zone) ? 0 : 1,
       }))
     )
     .filter((candidate) => aliasMatchesInput(normalizedInput, candidate.alias))
-    .sort((a, b) => b.score - a.score);
+    .sort((a, b) => a.priority - b.priority || b.score - a.score);
 }
 
 function zoneHasAnyAlias(zone, aliases) {
@@ -595,19 +647,14 @@ function zoneHasAnyAlias(zone, aliases) {
   );
 }
 
-function isRegion4800(zone) {
-  return zoneHasAnyAlias(zone, REGION_4800_ALIASES);
-}
-
 function isAutoCodRegion(zone) {
   return zoneHasAnyAlias(zone, [...YANGON_ALIASES, ...MANDALAY_ALIASES]);
 }
 
 function normalizeDeliveryZone(zone) {
   if (!zone) return null;
-  const region4800 = isRegion4800(zone);
   const codAvailable = Boolean(isAutoCodRegion(zone) || zone.cod_available);
-  const normalizedFee = region4800 ? 4800 : codAvailable ? 6000 : Number(zone.delivery_fee);
+  const normalizedFee = Number(zone.delivery_fee);
 
   return {
     ...zone,
