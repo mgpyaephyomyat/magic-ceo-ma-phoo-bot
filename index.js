@@ -66,6 +66,20 @@ const PRODUCT_MENU_ORDER = [
   "Detox Essence",
 ];
 
+const PRODUCT_DISPLAY_NAMES = {
+  bodywash: "ရေချိုးဆပ်ပြာဗူး(အဝါ)",
+  "body wash": "ရေချိုးဆပ်ပြာဗူး(အဝါ)",
+  shampoo: "ခေါင်းလျော်ရည်ဗူး(အဖြူ)",
+  hairmask: "ပေါင်းဆေး(ဗူး)အမဲ",
+  "hair mask": "ပေါင်းဆေး(ဗူး)အမဲ",
+  "hair oil": "ဆံပင်တုန်ဆီ",
+  "whitening soap": "ဆပ်ပြာခဲ",
+  "toothpaste set": "သွားတိုက်ဆေး၂ဗူး1set",
+  "acne face wash": "ဝက်ခြံပျောက်မျက်နှာသစ်",
+  "pore tightening toner": "ချွေးပေါက်ကျဉ်း Toner",
+  "detox essence": "အဆိပ်ထုတ် Essence serum",
+};
+
 const YANGON_ALIASES = [
   "ရန်ကုန်",
   "yangon",
@@ -155,6 +169,7 @@ const TEXT = {
   products: "ပစ္စည်းအမျိုးအစား ရွေးပေးပါရှင့်။",
   loading: "ခဏလေးစောင့်ပေးပါရှင့်...",
   noProducts: "လက်ရှိ product မတွေ့သေးပါဘူးရှင့်။",
+  greeting: "မင်္ဂလာပါရှင့်🥰 မဖူးဆိုင်ကနေ ဘာလေးရှာပေးရမလဲ။",
   askPhone:
     "ဖုန်းနံပါတ်ပေးပေးပါရှင့်။ Telegram contact ပို့နိုင်သလို စာနဲ့လည်း ရိုက်ပေးနိုင်ပါတယ်။",
   askAddress: "ပို့ရမယ့် လိပ်စာအပြည့်အစုံ ရိုက်ပေးပါရှင့်။",
@@ -162,7 +177,7 @@ const TEXT = {
     "အော်ဒါအတည်ပြုပြီးပါပြီရှင့်။ မဖူးဘက်က order ကို လက်ခံထားပါပြီ။ ကျေးဇူးတင်ပါတယ်🥰",
   cancelled: "အော်ဒါကို ပယ်ဖျက်ပြီးပါပြီရှင့်။",
   unknown:
-    "နားလည်အောင် မဖမ်းမိသေးပါဘူးရှင့်။ ပစ္စည်းကြည့်ရန် /start ကိုနှိပ်နိုင်ပါတယ်။",
+    "မင်္ဂလာပါရှင့်🥰 မဖူးဆိုင်ကနေ ဘာလေးရှာပေးရမလဲ။",
 };
 
 function mainMenuKeyboard() {
@@ -303,9 +318,20 @@ function cleanHtml(value) {
     .replace(/>/g, "&gt;");
 }
 
+function productDisplayName(productOrName) {
+  const name = typeof productOrName === "string" ? productOrName : productOrName?.name;
+  const normalized = normalizeText(name);
+  if (PRODUCT_DISPLAY_NAMES[normalized]) return PRODUCT_DISPLAY_NAMES[normalized];
+
+  const matchedKey = Object.keys(PRODUCT_DISPLAY_NAMES).find((key) =>
+    normalized.includes(key)
+  );
+  return matchedKey ? PRODUCT_DISPLAY_NAMES[matchedKey] : String(name || "");
+}
+
 function productTitle(product) {
   const unit = product.unit ? ` / ${product.unit}` : "";
-  return `${product.name} - ${money(product.price)}${unit}`;
+  return `${productDisplayName(product)} - ${money(product.price)}${unit}`;
 }
 
 function shortText(value, maxLength = 130) {
@@ -319,15 +345,15 @@ function freeDeliveryText(product) {
     ? 4
     : Number(product.free_delivery_qty || 0);
   return freeDeliveryQty > 0
-    ? `${freeDeliveryQty} ခုနှင့်အထက် Free Delivery`
-    : "Free delivery သတ်မှတ်ချက် မရှိသေးပါ";
+    ? `${freeDeliveryQty} ခုနှင့်အထက် Deli free`
+    : "Deli free သတ်မှတ်ချက် မရှိသေးပါ";
 }
 
 function formatProduct(product) {
   const freeDeliveryQty = Number(product.free_delivery_qty || 0);
   const freeText =
     freeDeliveryQty > 0
-      ? `\n🚚 ${freeDeliveryQty} ခုနှင့်အထက် Free Delivery`
+      ? `\n🚚 ${freeDeliveryQty} ခုနှင့်အထက် Deli free`
       : "";
   const stockText =
     product.stock === null || product.stock === undefined
@@ -335,8 +361,7 @@ function formatProduct(product) {
       : `\n📦 Stock: ${product.stock}`;
 
   return [
-    `<b>${cleanHtml(product.name)}</b>`,
-    product.category ? `Category: ${cleanHtml(product.category)}` : "",
+    `<b>${cleanHtml(productDisplayName(product))}</b>`,
     `စျေးနှုန်း: <b>${money(product.price)}</b>${
       product.unit ? ` / ${cleanHtml(product.unit)}` : ""
     }`,
@@ -353,7 +378,7 @@ function formatProductPhotoCaption(product) {
   const usage = shortText(product.usage_instruction, 120);
 
   return [
-    `<b>${cleanHtml(product.name)}</b>`,
+    `<b>${cleanHtml(productDisplayName(product))}</b>`,
     `စျေးနှုန်း: <b>${money(product.price)}</b>${
       product.unit ? ` / ${cleanHtml(product.unit)}` : ""
     }`,
@@ -367,7 +392,7 @@ function formatProductPhotoCaption(product) {
 
 function formatUsage(product) {
   return product.usage_instruction
-    ? `<b>${cleanHtml(product.name)} အသုံးပြုပုံ</b>\n${cleanHtml(
+    ? `<b>${cleanHtml(productDisplayName(product))} အသုံးပြုပုံ</b>\n${cleanHtml(
         product.usage_instruction
       )}`
     : "ဒီ product အတွက် အသုံးပြုပုံကို မကြာခင် ထည့်ပေးပါမယ်ရှင့်။";
@@ -375,7 +400,7 @@ function formatUsage(product) {
 
 function formatBenefits(product) {
   return product.benefits
-    ? `<b>${cleanHtml(product.name)} ကောင်းကျိုးများ</b>\n${cleanHtml(
+    ? `<b>${cleanHtml(productDisplayName(product))} ကောင်းကျိုးများ</b>\n${cleanHtml(
         product.benefits
       )}`
     : "ဒီ product အတွက် ကောင်းကျိုးစာသားကို မကြာခင် ထည့်ပေးပါမယ်ရှင့်။";
@@ -405,11 +430,11 @@ function formatLegacyOrderSummary(session) {
 
   return [
     "<b>အော်ဒါအချက်အလက်</b>",
-    `ပစ္စည်း: ${cleanHtml(product.name)}`,
+    `ပစ္စည်း: ${cleanHtml(productDisplayName(product))}`,
     `အရေအတွက်: ${quantity}`,
-    `Subtotal: ${money(totals.subtotal)}`,
+    `ပစ္စည်းစုစုပေါင်း: ${money(totals.subtotal)}`,
     `ပို့ခ: ${
-      totals.isFreeDelivery ? "Free Delivery" : money(totals.deliveryFee)
+      totals.isFreeDelivery ? "Deli free" : money(totals.deliveryFee)
     }`,
     `စုစုပေါင်း: <b>${money(totals.total)}</b>`,
     "ငွေချေမှု: အိမ်ရောက်ငွေချေ",
@@ -425,18 +450,18 @@ function formatBasicOrderSummary(session) {
   const totals = calculateOrder(product, quantity);
 
   return [
-    "<b>Order Summary</b>",
-    `Product: ${cleanHtml(product.name)}`,
-    `Quantity: ${quantity}`,
-    `Subtotal: ${money(totals.subtotal)}`,
-    `Delivery fee: ${
-      totals.isFreeDelivery ? "Free Delivery" : money(totals.deliveryFee)
+    "<b>အော်ဒါအချက်အလက်</b>",
+    `ပစ္စည်း: ${cleanHtml(productDisplayName(product))}`,
+    `အရေအတွက်: ${quantity}`,
+    `ပစ္စည်းစုစုပေါင်း: ${money(totals.subtotal)}`,
+    `ပို့ခ: ${
+      totals.isFreeDelivery ? "Deli free" : money(totals.deliveryFee)
     }`,
-    `Total: <b>${money(totals.total)}</b>`,
+    `စုစုပေါင်း: <b>${money(totals.total)}</b>`,
     "ငွေချေမှု: အိမ်ရောက်ငွေချေ",
-    customerName ? `Customer name: ${cleanHtml(customerName)}` : "",
-    phone ? `Phone: ${cleanHtml(phone)}` : "",
-    address ? `Address: ${cleanHtml(address)}` : "",
+    customerName ? `နာမည်: ${cleanHtml(customerName)}` : "",
+    phone ? `ဖုန်း: ${cleanHtml(phone)}` : "",
+    address ? `လိပ်စာ: ${cleanHtml(address)}` : "",
   ]
     .filter(Boolean)
     .join("\n");
@@ -450,31 +475,31 @@ function formatOrderSummary(session) {
   const paymentMethod = getPaymentLabel(deliveryInfo);
   const itemLines = items.map(
     (item, index) =>
-      `${index + 1}. ${cleanHtml(item.product_name)} x${item.quantity} = ${money(item.subtotal)}`
+      `${index + 1}. ${cleanHtml(productDisplayName(item.product || item.product_name))} x${item.quantity} = ${money(item.subtotal)}`
   );
 
   return [
-    "<b>🛒 Order Summary</b>",
+    "<b>🛒 အော်ဒါအချက်အလက်</b>",
     ...itemLines,
     "",
-    `Subtotal: ${money(totals.subtotal)}`,
+    `ပစ္စည်းစုစုပေါင်း: ${money(totals.subtotal)}`,
     totals.freeDeliveryReason ? cleanHtml(totals.freeDeliveryReason) : "",
     `ပို့ခ: ${
       totals.deliveryFee === null
         ? "Admin confirm"
         : totals.isFreeDelivery
-          ? "Free"
+          ? "Deli free"
           : money(totals.deliveryFee)
     }`,
     `စုစုပေါင်း: <b>${totals.deliveryFee === null ? "Admin confirm" : money(totals.total)}</b>`,
     `ငွေချေမှု: ${cleanHtml(paymentMethod)}`,
     `အိမ်ရောက်ငွေချေ: ${cleanHtml(codStatus)}`,
     "",
-    "<b>Customer</b>",
-    customerName ? `Customer name: ${cleanHtml(customerName)}` : "",
-    phone ? `Phone: ${cleanHtml(phone)}` : "",
-    city ? `City/Township: ${cleanHtml(city)}` : "",
-    address ? `Address: ${cleanHtml(address)}` : "",
+    "<b>ဝယ်သူ</b>",
+    customerName ? `နာမည်: ${cleanHtml(customerName)}` : "",
+    phone ? `ဖုန်း: ${cleanHtml(phone)}` : "",
+    city ? `မြို့/မြို့နယ်: ${cleanHtml(city)}` : "",
+    address ? `လိပ်စာ: ${cleanHtml(address)}` : "",
     !deliveryInfo ? "Note: Delivery နဲ့ ငွေချေမှုကို Admin က confirm လုပ်ပေးပါမယ်ရှင့်။" : "",
   ]
     .filter(Boolean)
@@ -692,6 +717,14 @@ function sortProductsForMenu(products) {
   });
 }
 
+function productMenuKeyboard(products) {
+  return {
+    inline_keyboard: sortProductsForMenu(products).map((product) => [
+      { text: productDisplayName(product), callback_data: `product:${product.id}` },
+    ]),
+  };
+}
+
 async function insertAdaptive(table, payload) {
   const workingPayload = { ...payload };
   const removedColumns = [];
@@ -781,7 +814,7 @@ async function notifyAdmin(order, totals, session, from) {
   const items = getSessionItems(session);
   const itemLines = items.map(
     (item, index) =>
-      `${index + 1}. ${cleanHtml(item.product_name)} x${item.quantity} = ${money(item.subtotal)}`
+      `${index + 1}. ${cleanHtml(productDisplayName(item.product || item.product_name))} x${item.quantity} = ${money(item.subtotal)}`
   );
   const message = [
     "<b>New Order</b>",
@@ -820,20 +853,15 @@ async function notifyAdmin(order, totals, session, from) {
   }
 }
 
-async function showCategories(chatId) {
+async function showCategories(chatId, prompt = "ပစ္စည်းရွေးပေးပါရှင့် 🛍") {
   const products = await getProducts();
   if (products.length === 0) {
     await sendMessage(chatId, TEXT.noProducts);
     return;
   }
 
-  const menuProducts = sortProductsForMenu(products);
-  await sendMessage(chatId, "ပစ္စည်းရွေးပေးပါရှင့် 🛍", {
-    reply_markup: {
-      inline_keyboard: menuProducts.map((product) => [
-        { text: product.name, callback_data: `product:${product.id}` },
-      ]),
-    },
+  await sendMessage(chatId, prompt, {
+    reply_markup: productMenuKeyboard(products),
   });
 }
 
@@ -894,7 +922,7 @@ function orderInfoPrompt(session) {
   const items = getSessionItems(session);
   const itemText =
     items.length > 0
-      ? items.map((item) => `${item.product_name} x${item.quantity}`).join(", ")
+      ? items.map((item) => `${productDisplayName(item.product || item.product_name)} x${item.quantity}`).join(", ")
       : `အရေအတွက်: ${session.quantity || 1} ခု`;
 
   return [
@@ -907,7 +935,7 @@ function orderInfoPrompt(session) {
     "",
     "လေးပေးထားပေးနော်🥰🥰",
     "",
-    `Order: ${itemText}`,
+    `မှာယူမည့်ပစ္စည်း: ${itemText}`,
   ].join("\n");
 }
 
@@ -958,10 +986,9 @@ function isCancelText(text) {
 async function cancelOrder(chatId, from = null) {
   const currentSession = getSession(chatId);
   if (!currentSession) {
-    await sendMessage(
+    await showCategories(
       chatId,
-      "ဖျက်ရန် အတည်မပြုရသေးတဲ့ order မရှိတော့ပါဘူးရှင့်။ အတည်ပြုပြီး order ဆိုရင် Admin က ကူညီစစ်ပေးပါမယ်။",
-      { reply_markup: mainMenuKeyboard() }
+      "ဖျက်ရန် အတည်မပြုရသေးတဲ့ order မရှိတော့ပါဘူးရှင့်။ ပစ္စည်းလေး ပြန်ရွေးလို့ရပါတယ်။"
     );
     return;
   }
@@ -974,9 +1001,7 @@ async function cancelOrder(chatId, from = null) {
     });
   }
 
-  await sendMessage(chatId, "Order မလုပ်တော့ပါဘူးရှင့်။ Menu ကိုပြန်သွားပါမယ်။", {
-    reply_markup: mainMenuKeyboard(),
-  });
+  await showCategories(chatId, "Order မလုပ်တော့ပါဘူးရှင့်။ Menu ကိုပြန်သွားပါမယ်။");
 }
 
 function normalizeMyanmarDigits(value) {
@@ -1111,7 +1136,7 @@ function cartDraftFromSession(session) {
 
 function getProductAliases(product) {
   const name = String(product.name || "").toLowerCase();
-  const aliases = [name];
+  const aliases = [name, productDisplayName(product)];
 
   if (name.includes("bodywash")) aliases.push("body wash", "bodywash", "ချိုး", "ရေချိုး", "ရေချိုးဆပ်ပြာ");
   if (name.includes("shampoo")) aliases.push("shampoo", "ခေါင်းလျှော်", "ခေါင်းလျှော်ရည်");
@@ -1191,9 +1216,7 @@ async function buildOrderSessionFromText(text, from, existingSession = null) {
 
 async function handleStart(chatId) {
   clearSession(chatId);
-  await sendMessage(chatId, TEXT.start, {
-    reply_markup: mainMenuKeyboard(),
-  });
+  await showCategories(chatId, TEXT.greeting);
 }
 
 async function handleHelpOrder(chatId) {
@@ -1358,7 +1381,7 @@ async function handleCallback(update) {
   if (data === "confirm_order") {
     const session = getSession(chatId);
     if (!session || session.step !== "confirm") {
-      await sendMessage(chatId, "အော်ဒါအချက်အလက် မတွေ့တော့ပါဘူးရှင့်။ /start မှ ပြန်စပါနော်။");
+      await showCategories(chatId, "အော်ဒါအချက်အလက် မတွေ့တော့ပါဘူးရှင့်။ ပစ္စည်းလေး ပြန်ရွေးပေးပါနော်။");
       return;
     }
 
@@ -1395,7 +1418,7 @@ function normalizeText(text) {
 }
 
 function includesAny(text, keywords) {
-  return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
+  return keywords.some((keyword) => text.includes(normalizeText(keyword)));
 }
 
 function customerMayWantToOrder(text) {
@@ -1418,12 +1441,73 @@ async function findMatchingProduct(text) {
 
   return products.find((product) => {
     const name = normalizeText(product.name);
+    const displayName = normalizeText(productDisplayName(product));
     const category = normalizeText(product.category);
     return (
       (name && normalized.includes(name)) ||
+      (displayName && normalized.includes(displayName)) ||
+      getProductAliases(product).some((alias) => normalized.includes(normalizeText(alias))) ||
       (category && normalized.includes(category))
     );
   });
+}
+
+async function shouldShowProductMenuForText(text) {
+  const normalized = normalizeText(text);
+  if (!normalized) return false;
+  if (await findMatchingProduct(text)) return false;
+
+  const menuKeywords = [
+    "hi",
+    "hello",
+    "hey",
+    "မင်္ဂလာပါ",
+    "မဂ်လာပါ",
+    "မင်္ဂလာ",
+    "ဟိုင်း",
+    "စျေးမေး",
+    "ဈေးမေး",
+    "စျေးသိ",
+    "ဈေးသိ",
+    "product",
+    "ပစ္စည်း",
+    "ကုန်ပစ္စည်း",
+    "ကြည့်ချင်",
+    "ကြည့်ချင်",
+    "ကြည့်မယ်",
+    "ကြည့်မယ်",
+    "ဘာတွေရှိ",
+    "ရှိတာ",
+    "ပြပါ",
+  ];
+  if (includesAny(normalized, menuKeywords)) return true;
+
+  const actionableKeywords = [
+    "မှာ",
+    "order",
+    "ဝယ်",
+    "ယူမယ်",
+    "လိုချင်",
+    "ပို့",
+    "delivery",
+    "deli",
+    "cod",
+    "ငွေချေ",
+    "မြို့",
+    "မြို့နယ်",
+    "အသုံး",
+    "သုံး",
+    "benefit",
+    "ကောင်း",
+    "ဝက်ခြံ",
+    "အသား",
+    "ဆံပင်",
+    "ချွေးပေါက်",
+    "sensitive",
+    "skin",
+  ];
+
+  return !includesAny(normalized, actionableKeywords);
 }
 
 async function recommendByConcern(chatId, text) {
@@ -1435,37 +1519,37 @@ async function recommendByConcern(chatId, text) {
       keywords: ["ဝက်ခြံ", "acne", "pimple"],
       productWords: ["acne", "face wash"],
       reply:
-        "ဝက်ခြံအတွက်ဆို Acne Face Wash ကို အရင်ကြည့်လို့ရပါတယ်ရှင့်။ Skin sensitive ဖြစ်ရင် နေ့တိုင်းမသုံးခင် နည်းနည်းစမ်းသုံးပေးပါနော်။",
+        "ဝက်ခြံအတွက်ဆို ဝက်ခြံပျောက်မျက်နှာသစ် ကို အရင်ကြည့်လို့ရပါတယ်ရှင့်။ Skin sensitive ဖြစ်ရင် နေ့တိုင်းမသုံးခင် နည်းနည်းစမ်းသုံးပေးပါနော်။",
     },
     {
       keywords: ["ချွေးနံ့", "body", "bodywash", "အနံ့"],
       productWords: ["bodywash", "body wash"],
-      reply: "Body care အတွက် BodyWash ကို ကြည့်လို့ရပါတယ်ရှင့်။",
+      reply: "Body care အတွက် ရေချိုးဆပ်ပြာဗူး(အဝါ) ကို ကြည့်လို့ရပါတယ်ရှင့်။",
     },
     {
       keywords: ["ဆံပင်", "ဗောက်", "shampoo", "hair"],
       productWords: ["shampoo", "hair mask", "hair oil"],
-      reply: "ဆံပင်အတွက် Shampoo, HairMask, Hair Oil တွေရှိပါတယ်ရှင့်။",
+      reply: "ဆံပင်အတွက် ခေါင်းလျော်ရည်ဗူး(အဖြူ), ပေါင်းဆေး(ဗူး)အမဲ, ဆံပင်တုန်ဆီ တွေရှိပါတယ်ရှင့်။",
     },
     {
       keywords: ["ဖြူ", "whitening", "soap"],
       productWords: ["whitening", "soap"],
-      reply: "Whitening care အတွက် Whitening Soap ကို ကြည့်လို့ရပါတယ်ရှင့်။",
+      reply: "Whitening care အတွက် ဆပ်ပြာခဲ ကို ကြည့်လို့ရပါတယ်ရှင့်။",
     },
     {
       keywords: ["သွား", "tooth", "toothpaste"],
       productWords: ["toothpaste"],
-      reply: "သွားတိုက်ဆေး Set အတွက် Toothpaste Set ရှိပါတယ်ရှင့်။",
+      reply: "သွားတိုက်ဆေး Set အတွက် သွားတိုက်ဆေး၂ဗူး1set ရှိပါတယ်ရှင့်။",
     },
     {
       keywords: ["ချွေးပေါက်", "pore", "toner"],
       productWords: ["pore", "toner"],
-      reply: "ချွေးပေါက်ကျဉ်းချင်ရင် Pore Tightening Toner ကို ကြည့်လို့ရပါတယ်ရှင့်။",
+      reply: "ချွေးပေါက်ကျဉ်းချင်ရင် ချွေးပေါက်ကျဉ်း Toner ကို ကြည့်လို့ရပါတယ်ရှင့်။",
     },
     {
       keywords: ["detox", "essence", "အဆီ"],
       productWords: ["detox", "essence"],
-      reply: "Skin care အတွက် Detox Essence ကို ကြည့်လို့ရပါတယ်ရှင့်။",
+      reply: "Skin care အတွက် အဆိပ်ထုတ် Essence serum ကို ကြည့်လို့ရပါတယ်ရှင့်။",
     },
   ];
 
@@ -1474,14 +1558,14 @@ async function recommendByConcern(chatId, text) {
 
   const matchedProducts = products.filter((product) => {
     const haystack = normalizeText(
-      `${product.name} ${product.category} ${product.description}`
+      `${product.name} ${productDisplayName(product)} ${product.category} ${product.description}`
     );
     return rule.productWords.some((word) => haystack.includes(word));
   });
 
   if (matchedProducts.length === 0) {
     await sendMessage(chatId, rule.reply, {
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: productMenuKeyboard(products),
     });
     return true;
   }
@@ -1501,6 +1585,7 @@ function buildProductCatalog(products) {
     .map((product) => ({
       id: product.id,
       name: product.name,
+      display_name: productDisplayName(product),
       category: product.category,
       price: product.price,
       unit: product.unit,
@@ -1548,7 +1633,7 @@ async function extractAiIntent(text, context = {}) {
     "Return JSON only. No markdown.",
     "Use null for unknown fields.",
     "Allowed intents: greeting, product_info, usage, benefits, recommend, delivery_question, order_intent, smalltalk, unknown.",
-    "Never invent products or delivery zones. Pick product_name only from product data if clear.",
+    "Never invent products or delivery zones. Pick product_name only from product data if clear. Product data has English name and Burmese display_name.",
     "Fields: intent, product_name, quantity, items, city, township, customer_name, phone, address, question.",
     "For multi-product orders, set items to an array of { product_name, quantity }. Use quantity 1 if not specified.",
     "Understand Burmese, English, and mixed Burmese-English product/order messages.",
@@ -1602,7 +1687,9 @@ function findProductByAiName(products, name, originalText = "") {
 
   return (
     products.find((product) => normalizeText(product.name) === normalizedName) ||
+    products.find((product) => normalizeText(productDisplayName(product)) === normalizedName) ||
     products.find((product) => normalizeText(product.name).includes(normalizedName)) ||
+    products.find((product) => normalizeText(productDisplayName(product)).includes(normalizedName)) ||
     products.find((product) =>
       getProductAliases(product).some((alias) => normalizedText.includes(normalizeText(alias)))
     ) ||
@@ -1727,15 +1814,13 @@ async function handleAiAssistant(chatId, from, text) {
   });
 
   if (intent.intent === "greeting" || intent.intent === "smalltalk") {
-    await sendMessage(chatId, "မင်္ဂလာပါရှင့်🥰 မဖူးဆိုင်ကနေ ဘာလေးရှာပေးရမလဲ။", {
-      reply_markup: mainMenuKeyboard(),
-    });
+    await showCategories(chatId, TEXT.greeting);
     return true;
   }
 
   if (intent.intent === "delivery_question") {
     await sendMessage(chatId, deliveryReply(deliveryInfo), {
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: productMenuKeyboard(products),
     });
     return true;
   }
@@ -1748,7 +1833,7 @@ async function handleAiAssistant(chatId, from, text) {
   if (intent.intent === "order_intent") {
     if (items.length === 0 || !product) {
       await sendMessage(chatId, "ဘယ် product လေးမှာချင်တာလဲ ပြောပေးပါနော်🥰", {
-        reply_markup: mainMenuKeyboard(),
+        reply_markup: productMenuKeyboard(products),
       });
       return true;
     }
@@ -1813,6 +1898,7 @@ async function answerWithOpenRouter(chatId, text) {
     "You are a polite Myanmar cosmetics shop assistant for a Telegram ecommerce bot.",
     "Reply only in friendly Burmese/Myanmar language.",
     "Use only the product data provided below. Do not invent unavailable products, prices, stock, benefits, usage instructions, or delivery rules.",
+    "When mentioning products to customers, use product display_name, not the English internal name.",
     "Keep the reply short, warm, and sales-friendly. Prefer 2 to 5 short lines.",
     "Never show internal status/payment words to customers: COD, prepaid, needs_review, pending_cod, awaiting_payment. Use Burmese labels only: အိမ်ရောက်ငွေချေ, ကြိုလွှဲငွေချေ, or Admin confirm.",
     "If the customer asks for usage, explain from usage_instruction only.",
@@ -1869,7 +1955,7 @@ async function answerWithOpenRouter(chatId, text) {
     await sendMessage(chatId, cleanHtml(`${reply}${suffix}`), {
       reply_markup: matchedProduct
         ? productActionsKeyboard(matchedProduct.id)
-        : mainMenuKeyboard(),
+        : productMenuKeyboard(products),
     });
     return true;
   } catch (error) {
@@ -1877,9 +1963,7 @@ async function answerWithOpenRouter(chatId, text) {
       "OpenRouter failed",
       error.response?.data?.error?.message || error.message
     );
-    await sendMessage(chatId, fallbackAiReply(), {
-      reply_markup: mainMenuKeyboard(),
-    });
+    await showCategories(chatId, fallbackAiReply());
     return true;
   }
 }
@@ -1901,11 +1985,7 @@ async function answerBurmeseQuestion(chatId, text) {
       "sis",
     ])
   ) {
-    await sendMessage(
-      chatId,
-      "မင်္ဂလာပါရှင့် 💄 ဘာလေးရှာပေးရမလဲ။ ပစ္စည်းကြည့်မယ်ဆို အောက်က menu ကနေရွေးနိုင်ပါတယ်ရှင့်။",
-      { reply_markup: mainMenuKeyboard() }
-    );
+    await showCategories(chatId, TEXT.greeting);
     return true;
   }
 
@@ -2249,6 +2329,11 @@ async function handleMessage(update) {
     return;
   }
 
+  if (text && (await shouldShowProductMenuForText(text))) {
+    await showCategories(chatId, TEXT.greeting);
+    return;
+  }
+
   if (text && (await handleAiAssistant(chatId, message.from, text))) {
     return;
   }
@@ -2261,9 +2346,7 @@ async function handleMessage(update) {
     return;
   }
 
-  await sendMessage(chatId, TEXT.unknown, {
-    reply_markup: mainMenuKeyboard(),
-  });
+  await showCategories(chatId, TEXT.unknown);
 }
 
 async function handleUpdate(update) {
