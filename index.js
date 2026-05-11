@@ -539,6 +539,8 @@ function formatOrderSummary(session) {
     city ? `မြို့/မြို့နယ်: ${cleanHtml(city)}` : "",
     address ? `လိပ်စာ: ${cleanHtml(address)}` : "",
     !deliveryInfo ? "Note: Delivery နဲ့ ငွေချေမှုကို Admin က confirm လုပ်ပေးပါမယ်ရှင့်။" : "",
+    "",
+    "မှတ်ချက် - မှာမယ်ဆို အတည်ပြုပေးပါရှင့်။ မဖူးဆီ order ရောက်သွားအောင်လို့ပါ🥰",
   ]
     .filter(Boolean)
     .join("\n");
