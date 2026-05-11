@@ -70,30 +70,61 @@ const YANGON_ALIASES = [
   "ရန်ကုန်",
   "yangon",
   "သင်္ဃန်းကျွန်း",
+  "thingangyun",
   "တောင်ဥက္ကလာ",
+  "south okkalapa",
   "မြောက်ဥက္ကလာ",
+  "north okkalapa",
   "သာကေတ",
+  "thaketa",
+  "ဒဂုံဆိပ်ကမ်း",
+  "dagon seikkan",
+  "မြောက်ဒဂုံ",
+  "north dagon",
+  "အရှေ့ဒဂုံ",
+  "east dagon",
+  "တောင်ဒဂုံ",
+  "south dagon",
   "ဒဂုံ",
+  "dagon",
   "အင်းစိန်",
+  "insein",
+  "လှိုင်သာယာ",
+  "hlaing tharyar",
+  "hlaingtharyar",
   "လှိုင်",
+  "hlaing",
   "မရမ်းကုန်း",
+  "mayangone",
   "တာမွေ",
+  "tamwe",
   "စမ်းချောင်း",
+  "sanchaung",
   "ကမာရွတ်",
+  "kamayut",
   "ရန်ကင်း",
+  "yankin",
   "ဗဟန်း",
+  "bahan",
 ];
 
 const MANDALAY_ALIASES = [
   "မန္တလေး",
   "mandalay",
   "ချမ်းအေးသာဇံ",
+  "chanayethazan",
   "ချမ်းမြသာစည်",
+  "chanmyathazi",
   "မဟာအောင်မြေ",
+  "maha aung myay",
   "အောင်မြေသာဇံ",
+  "aungmyethazan",
   "ပြည်ကြီးတံခွန်",
+  "pyigyitagon",
   "အမရပူရ",
+  "amarapura",
   "ပုသိမ်ကြီး",
+  "patheingyi",
 ];
 
 const NAYPYITAW_ALIASES = [
@@ -128,7 +159,7 @@ const TEXT = {
     "ဖုန်းနံပါတ်ပေးပေးပါရှင့်။ Telegram contact ပို့နိုင်သလို စာနဲ့လည်း ရိုက်ပေးနိုင်ပါတယ်။",
   askAddress: "ပို့ရမယ့် လိပ်စာအပြည့်အစုံ ရိုက်ပေးပါရှင့်။",
   orderSaved:
-    "အော်ဒါတင်ပြီးပါပြီရှင့်။ Admin မှ ဖုန်းဆက်ပြီး အတည်ပြုပေးပါမယ်။ အိမ်ရောက်ငွေချေ ရတဲ့မြို့တွေမှာ ပစ္စည်းရောက်မှ ငွေချေပေးရပါမယ်ရှင့်။",
+    "အော်ဒါအတည်ပြုပြီးပါပြီရှင့်။ မဖူးဘက်က order ကို လက်ခံထားပါပြီ။ ကျေးဇူးတင်ပါတယ်🥰",
   cancelled: "အော်ဒါကို ပယ်ဖျက်ပြီးပါပြီရှင့်။",
   unknown:
     "နားလည်အောင် မဖမ်းမိသေးပါဘူးရှင့်။ ပစ္စည်းကြည့်ရန် /start ကိုနှိပ်နိုင်ပါတယ်။",
@@ -481,16 +512,9 @@ async function getDeliveryZones() {
   return data || [];
 }
 
-function zoneSearchText(zone) {
-  const aliases = Array.isArray(zone.aliases)
-    ? zone.aliases.join(" ")
-    : String(zone.aliases || "");
-  return normalizeText(`${zone.city || ""} ${zone.township || ""} ${aliases}`);
-}
-
 function zoneTokens(zone) {
   const aliases = Array.isArray(zone.aliases) ? zone.aliases : String(zone.aliases || "").split(",");
-  const base = [zone.city, zone.township, ...aliases];
+  const base = [zone.city, zone.township, zone.note, ...aliases];
   const normalizedBase = normalizeText(base.join(" "));
   const builtInAliases = [];
 
@@ -509,7 +533,38 @@ function zoneTokens(zone) {
 
   return [...base, ...builtInAliases]
     .map((token) => normalizeText(token))
-    .filter((token) => token.length >= 2);
+    .filter((token, index, tokens) => token.length >= 2 && tokens.indexOf(token) === index);
+}
+
+function isLatinAlias(alias) {
+  return /^[a-z0-9\s-]+$/i.test(alias);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function aliasMatchesInput(normalizedInput, alias) {
+  if (!alias) return false;
+  if (!isLatinAlias(alias)) return normalizedInput.includes(alias);
+
+  const compactInput = normalizedInput.replace(/\s+/g, " ");
+  const compactAlias = alias.replace(/\s+/g, " ");
+  const boundaryPattern = new RegExp(`(^|[^a-z0-9])${escapeRegExp(compactAlias)}($|[^a-z0-9])`, "i");
+  return boundaryPattern.test(compactInput);
+}
+
+function getZoneMatchCandidates(zones, normalizedInput) {
+  return zones
+    .flatMap((zone) =>
+      zoneTokens(zone).map((alias) => ({
+        zone,
+        alias,
+        score: alias.length,
+      }))
+    )
+    .filter((candidate) => aliasMatchesInput(normalizedInput, candidate.alias))
+    .sort((a, b) => b.score - a.score);
 }
 
 function zoneHasAnyAlias(zone, aliases) {
@@ -556,24 +611,27 @@ async function getDeliveryInfo(input) {
   if (!normalized) return null;
 
   const zones = await getDeliveryZones();
-  const zone =
-    zones.find((zone) =>
-      zoneTokens(zone).some((token) => normalized.includes(token))
-    ) ||
-    zones.find((zone) => {
-      const haystack = zoneSearchText(zone);
-      return haystack && (normalized.includes(haystack) || haystack.includes(normalized));
-    }) ||
-    zones.find((zone) => {
-      const haystack = zoneSearchText(zone);
-      return haystack
-        .split(/\s+/)
-        .filter((part) => part.length >= 2)
-        .some((part) => normalized.includes(part));
-    }) ||
-    null;
+  const [match] = getZoneMatchCandidates(zones, normalized);
+  if (!match) {
+    console.log("delivery zone not matched", { rawAddress: String(input || "").slice(0, 300) });
+    return null;
+  }
 
-  return normalizeDeliveryZone(zone);
+  const deliveryInfo = normalizeDeliveryZone(match.zone);
+  const matchedRegion = deliveryInfo?.city || deliveryInfo?.township || "";
+  const paymentType = getPaymentLabel(deliveryInfo);
+  console.log("delivery zone matched", {
+    matchedAlias: match.alias,
+    matchedRegion,
+    deliveryFee: deliveryInfo?.delivery_fee ?? null,
+    paymentType,
+  });
+
+  return {
+    ...deliveryInfo,
+    matched_alias: match.alias,
+    matched_region: matchedRegion,
+  };
 }
 
 async function getCustomerSession(telegramUserId) {
@@ -729,6 +787,7 @@ async function notifyAdmin(order, totals, session, from) {
     "<b>New Order</b>",
     `Order ID: ${cleanHtml(order.id)}`,
     `Status: ${cleanHtml(order.status || "pending")}`,
+    `Timestamp: ${new Date().toISOString()}`,
     "",
     "<b>Items</b>",
     ...itemLines,
@@ -739,7 +798,7 @@ async function notifyAdmin(order, totals, session, from) {
     }`,
     `Total: ${totals.deliveryFee === null ? "Admin confirm" : money(totals.total)}`,
     `Payment: ${cleanHtml(getPaymentLabel(deliveryInfo))}`,
-    `COD: ${cleanHtml(getCodLabel(deliveryInfo))}`,
+    `အိမ်ရောက်ငွေချေ: ${cleanHtml(getCodLabel(deliveryInfo))}`,
     deliveryInfo?.estimated_days ? `ETA: ${cleanHtml(deliveryInfo.estimated_days)}` : "",
     deliveryInfo?.note ? `Delivery note: ${cleanHtml(deliveryInfo.note)}` : "",
     !deliveryInfo ? "Note: Unknown delivery zone. Admin must confirm fee/payment." : "",
@@ -901,7 +960,7 @@ async function cancelOrder(chatId, from = null) {
   if (!currentSession) {
     await sendMessage(
       chatId,
-      "ဖျက်ရန် pending order မရှိတော့ပါဘူးရှင့်။ အတည်ပြုပြီး order ဆိုရင် Admin က ကူညီစစ်ပေးပါမယ်။",
+      "ဖျက်ရန် အတည်မပြုရသေးတဲ့ order မရှိတော့ပါဘူးရှင့်။ အတည်ပြုပြီး order ဆိုရင် Admin က ကူညီစစ်ပေးပါမယ်။",
       { reply_markup: mainMenuKeyboard() }
     );
     return;
@@ -1304,7 +1363,7 @@ async function handleCallback(update) {
     }
 
     const { order, totals } = await saveOrder(callback.message.chat, from, session);
-    const adminNotified = await notifyAdmin(order, totals, session, from);
+    await notifyAdmin(order, totals, session, from);
     await updateCustomerSession(from.id, {
       last_product: getSessionItems(session).map((item) => item.product_name).join(", "),
       last_city: session.city || session.deliveryInfo?.township || session.deliveryInfo?.city || null,
@@ -1317,13 +1376,6 @@ async function handleCallback(update) {
     });
     clearSession(chatId);
     await sendMessage(chatId, TEXT.orderSaved, { reply_markup: removeKeyboard() });
-    if (!adminNotified) {
-      await sendMessage(
-        chatId,
-        "Admin notification မရောက်နိုင်သေးပါဘူးရှင့်။ Order ကိုတော့ သိမ်းထားပြီးပါပြီ။ Admin Chat ID setup ကို စစ်ပေးပါမယ်။",
-        { reply_markup: mainMenuKeyboard() }
-      );
-    }
     return;
   }
 
