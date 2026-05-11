@@ -83,6 +83,7 @@ const PRODUCT_DISPLAY_NAMES = {
 const YANGON_ALIASES = [
   "ရန်ကုန်",
   "yangon",
+  "ygn",
   "သင်္ဃန်းကျွန်း",
   "thingangyun",
   "တောင်ဥက္ကလာ",
@@ -91,6 +92,15 @@ const YANGON_ALIASES = [
   "north okkalapa",
   "သာကေတ",
   "thaketa",
+  "ဒေါပုံ",
+  "မင်္ဂလာတောင်ညွန့်",
+  "မင်္ဂလာတောင်ညွန့်",
+  "ပုဇွန်တောင်",
+  "ဗိုလ်တစ်ထောင်",
+  "ကျောက်တံတား",
+  "ပန်းပဲတန်း",
+  "လသာ",
+  "လမ်းမတော်",
   "ဒဂုံဆိပ်ကမ်း",
   "dagon seikkan",
   "မြောက်ဒဂုံ",
@@ -101,11 +111,11 @@ const YANGON_ALIASES = [
   "south dagon",
   "ဒဂုံ",
   "dagon",
+  "အလုံ",
+  "ကြည့်မြင်တိုင်",
+  "ကြည့်မြင်တိုင်",
   "အင်းစိန်",
   "insein",
-  "လှိုင်သာယာ",
-  "hlaing tharyar",
-  "hlaingtharyar",
   "လှိုင်",
   "hlaing",
   "မရမ်းကုန်း",
@@ -120,6 +130,11 @@ const YANGON_ALIASES = [
   "yankin",
   "ဗဟန်း",
   "bahan",
+  "ရွှေပြည်သာ",
+  "လှည်းကူး",
+  "မင်္ဂလာဒုံ",
+  "မှော်ဘီ",
+  "သန်လျင်",
 ];
 
 const FAR_YANGON_ALIASES = [
@@ -132,11 +147,15 @@ const FAR_YANGON_ALIASES = [
   "ဒလ",
   "ကော့မှူး",
   "ကွမ်းခြံကုန်း",
+  "လှိုင်သာယာ",
+  "hlaing tharyar",
+  "hlaingtharyar",
 ];
 
 const MANDALAY_ALIASES = [
   "မန္တလေး",
   "mandalay",
+  "mdy",
   "ချမ်းအေးသာဇံ",
   "chanayethazan",
   "ချမ်းမြသာစည်",
@@ -154,12 +173,15 @@ const MANDALAY_ALIASES = [
 ];
 
 const FAR_MANDALAY_ALIASES = [
+  "တံတာရဦး",
   "ပလိပ်",
   "မြစ်ငယ်",
   "ကျောက်ဆည်",
   "မြစ်သား",
   "ကူမဲ",
   "စဉ့်ကိုင်",
+  "စဉ့်ကိုင်",
+  "ပြင်ဦးလွင်",
   "အုန်းချော",
   "သာစည်",
   "ပျော်ဘွယ်",
@@ -170,6 +192,7 @@ const FAR_MANDALAY_ALIASES = [
   "ညောင်ဦး",
   "ပုဂံ",
   "မတ္တရာ",
+  "မလှိုင်",
   "မလှိင်",
   "ဝမ်းတွင်း",
 ];
@@ -180,7 +203,9 @@ const NAYPYITAW_ALIASES = [
   "nay pyi taw",
   "ပျဉ်းမနား",
   "ဇမ္ဗူသီရိ",
+  "ဇေယာသီရိ",
   "ဒက္ခိဏသီရိ",
+  "ဒဏ္ခိဏသီရိ",
   "ဥတ္တရသီရိ",
   "ပုဗ္ဗသီရိ",
   "ဇေယျာသီရိ",
@@ -645,11 +670,24 @@ function getZoneMatchCandidates(zones, normalizedInput) {
         zone,
         alias,
         score: alias.length,
-        priority: isFarDeliveryZone(zone) ? 0 : 1,
+        priority: isFarDeliveryZone(zone) ? 1 : 0,
       }))
     )
     .filter((candidate) => aliasMatchesInput(normalizedInput, candidate.alias))
-    .sort((a, b) => a.priority - b.priority || b.score - a.score);
+    .sort((a, b) => b.score - a.score || a.priority - b.priority);
+}
+
+function matchDeliveryZoneFromList(input, zones) {
+  const normalized = normalizeText(input);
+  if (!normalized) return null;
+  const [match] = getZoneMatchCandidates(zones, normalized);
+  if (!match) return null;
+  const deliveryInfo = normalizeDeliveryZone(match.zone);
+  return {
+    ...deliveryInfo,
+    matched_alias: match.alias,
+    matched_region: deliveryInfo?.city || deliveryInfo?.township || "",
+  };
 }
 
 function zoneHasAnyAlias(zone, aliases) {
@@ -691,27 +729,22 @@ async function getDeliveryInfo(input) {
   if (!normalized) return null;
 
   const zones = await getDeliveryZones();
-  const [match] = getZoneMatchCandidates(zones, normalized);
-  if (!match) {
+  const deliveryInfo = matchDeliveryZoneFromList(normalized, zones);
+  if (!deliveryInfo) {
     console.log("delivery zone not matched", { rawAddress: String(input || "").slice(0, 300) });
     return null;
   }
 
-  const deliveryInfo = normalizeDeliveryZone(match.zone);
   const matchedRegion = deliveryInfo?.city || deliveryInfo?.township || "";
   const paymentType = getPaymentLabel(deliveryInfo);
   console.log("delivery zone matched", {
-    matchedAlias: match.alias,
+    matchedAlias: deliveryInfo.matched_alias,
     matchedRegion,
     deliveryFee: deliveryInfo?.delivery_fee ?? null,
     paymentType,
   });
 
-  return {
-    ...deliveryInfo,
-    matched_alias: match.alias,
-    matched_region: matchedRegion,
-  };
+  return deliveryInfo;
 }
 
 async function getCustomerSession(telegramUserId) {
@@ -1303,6 +1336,17 @@ function mergeCartItems(items) {
   return [...map.values()];
 }
 
+function mergeCartItemsWithUpdates(existingItems = [], updatedItems = []) {
+  const map = new Map();
+  for (const item of existingItems.filter(Boolean)) {
+    map.set(String(item.product_id), { ...item });
+  }
+  for (const item of mergeCartItems(updatedItems).filter(Boolean)) {
+    map.set(String(item.product_id), { ...item });
+  }
+  return [...map.values()];
+}
+
 function getSessionItems(session) {
   if (Array.isArray(session?.items) && session.items.length > 0) {
     return session.items;
@@ -1430,14 +1474,14 @@ function getProductAliases(product) {
   const aliases = [name, productDisplayName(product)];
 
   if (name.includes("bodywash")) aliases.push("body wash", "bodywash", "ချိုး", "ရေချိုး", "ရေချိုးဆပ်ပြာ");
-  if (name.includes("shampoo")) aliases.push("shampoo", "ခေါင်းလျှော်", "ခေါင်းလျှော်ရည်");
-  if (name.includes("hairmask")) aliases.push("hair mask", "hairmask", "ပေါင်းဆေး");
+  if (name.includes("shampoo")) aliases.push("shampoo", "ခေါင်းလျှော်", "ခေါင်းလျော်", "ခေါင်းလျှော်ရည်", "ခေါင်းလျော်ရည်");
+  if (name.includes("hairmask")) aliases.push("hair mask", "hairmask", "hair mask", "ပေါင်းဆေး");
   if (name.includes("hair oil")) aliases.push("ဆံပင်တုန်ဆီ", "တုန်ဆီ", "ဆံပင်ဆီ", "hair oil");
   if (name.includes("whitening") || name.includes("soap")) aliases.push("ဆပ်ပြာခဲ", "အသားဖြူဆပ်ပြာခဲ", "whitening soap", "soap");
-  if (name.includes("toothpaste")) aliases.push("သွားတိုက်ဆေး", "toothpaste", "tooth paste", "toothpaste set", "tooth paste set");
+  if (name.includes("toothpaste")) aliases.push("သွားတိုက်ဆေး", "သွားတိုက်ဆေး၂ဗူး1set", "toothpaste", "tooth paste", "toothpaste set", "tooth paste set");
   if (name.includes("acne")) aliases.push("မျက်နှာသစ်", "ဝက်ခြံပျောက်မျက်နှာသစ်", "ဝက်ခြံ", "face wash", "cleanser");
-  if (name.includes("toner")) aliases.push("toner", "ချွေးပေါက်ကျဉ်း toner", "ချွေးပေါက်", "pore");
-  if (name.includes("detox")) aliases.push("essence", "အဆိပ်ထုတ် essence", "detox", "detox essence");
+  if (name.includes("toner")) aliases.push("toner", "ချွေးပေါက်ကျဉ်း toner", "ချွေးပေါက်ကျဉ်း Toner", "ချွေးပေါက်", "pore");
+  if (name.includes("detox")) aliases.push("essence", "essence serum", "အဆိပ်ထုတ် essence", "အဆိပ်ထုတ် Essence serum", "detox", "detox essence");
 
   return [...new Set(aliases.filter(Boolean))];
 }
@@ -1476,8 +1520,7 @@ async function findProductFromOrderText(text) {
 async function buildOrderSessionFromText(text, from, existingSession = null) {
   const products = await getProducts();
   const existingItems = getSessionItems(existingSession);
-  const extractedItems = extractCartItemsFromText(text, products);
-  const items = mergeCartItems(extractedItems.length > 0 ? extractedItems : existingItems);
+  const items = extractCartItems(text, products, existingItems);
   const product = items[0]?.product || existingSession?.product || null;
   if (items.length === 0 || !product) return null;
 
@@ -2032,19 +2075,65 @@ function extractQuantityNearAlias(text, alias) {
   return extractExplicitQuantity(after) || extractExplicitQuantity(before) || 1;
 }
 
-function extractCartItemsFromText(text, products) {
+function extractSharedQuantity(text) {
+  const normalized = normalizeMyanmarDigits(text);
+  const patterns = [
+    new RegExp(`(\\d{1,2})\\s*${QUANTITY_UNITS_PATTERN}?\\s*စီ`, "i"),
+    /(\d{1,2})\s*each/i,
+    new RegExp(`တစ်မျိုး\\s*(\\d{1,2})\\s*${QUANTITY_UNITS_PATTERN}?\\s*စီ`, "i"),
+  ];
+  for (const pattern of patterns) {
+    const match = normalized.match(pattern);
+    if (match) return Number(match[1]);
+  }
+  for (const [word, quantity] of BURMESE_QUANTITY_WORDS) {
+    const escapedWord = escapeRegExp(word);
+    const pattern = new RegExp(`${escapedWord}\\s*${QUANTITY_UNITS_PATTERN}?\\s*စီ`, "i");
+    if (pattern.test(normalized)) return quantity;
+  }
+  return null;
+}
+
+function findProductMentions(text, products) {
   const normalized = normalizeText(text);
-  const items = [];
+  const mentions = [];
 
   for (const product of products) {
     const aliases = getProductAliases(product).sort((a, b) => b.length - a.length);
-    const matchedAlias = aliases.find((alias) => normalized.includes(normalizeText(alias)));
-    if (!matchedAlias) continue;
-
-    items.push(productToCartItem(product, extractQuantityNearAlias(text, matchedAlias)));
+    let bestMention = null;
+    for (const alias of aliases) {
+      const normalizedAlias = normalizeText(alias);
+      const index = normalized.indexOf(normalizedAlias);
+      if (index === -1) continue;
+      if (!bestMention || normalizedAlias.length > bestMention.normalizedAlias.length) {
+        bestMention = { product, alias, normalizedAlias, index };
+      }
+    }
+    if (bestMention) mentions.push(bestMention);
   }
 
-  return mergeCartItems(items);
+  return mentions.sort((left, right) => left.index - right.index);
+}
+
+function extractCartItems(text, products, existingCart = []) {
+  const sharedQuantity = extractSharedQuantity(text);
+  const mentions = findProductMentions(text, products);
+  const updatedItems = mentions.map((mention) =>
+    productToCartItem(
+      mention.product,
+      sharedQuantity || extractQuantityNearAlias(text, mention.alias)
+    )
+  );
+
+  if (updatedItems.length === 0) {
+    return mergeCartItems(existingCart);
+  }
+
+  return mergeCartItemsWithUpdates(existingCart, updatedItems);
+}
+
+function extractCartItemsFromText(text, products) {
+  return extractCartItems(text, products, []);
 }
 
 function cartItemsFromAiItems(aiItems, products, originalText) {
@@ -2107,13 +2196,11 @@ async function handleAiAssistant(chatId, from, text) {
   const textItems = extractCartItemsFromText(text, products);
   const product = findProductByAiName(products, intent.product_name, text) || aiItems[0]?.product || textItems[0]?.product || null;
   const items = mergeCartItems(
-    aiItems.length > 0
-      ? aiItems
-      : textItems.length > 0
-        ? textItems
-        : product
-          ? [productToCartItem(product, Number(intent.quantity) > 0 ? Number(intent.quantity) : extractQuantity(text))]
-          : []
+    textItems.length > 0 || aiItems.length > 0
+      ? mergeCartItemsWithUpdates(textItems, aiItems)
+      : product
+        ? [productToCartItem(product, Number(intent.quantity) > 0 ? Number(intent.quantity) : extractQuantity(text))]
+        : []
   );
   const deliveryInfo = await getDeliveryInfo(
     [intent.city, intent.township, intent.address, storedSession?.last_city, text]
@@ -2497,20 +2584,35 @@ async function handleMessage(update) {
 
   let activeSession = session;
   if (activeSession && text) {
+    const products = await getProducts();
     const messageQuantity = hasQuantityCue(text) ? extractQuantity(text, null) : null;
     const sessionItems = getSessionItems(activeSession);
-    const quantitySession =
-      messageQuantity && sessionItems.length === 1
+    const textCartItems = extractCartItems(text, products, sessionItems);
+    const productMentionChanged =
+      textCartItems.length !== sessionItems.length ||
+      textCartItems.some((item) => {
+        const existing = sessionItems.find((oldItem) => String(oldItem.product_id) === String(item.product_id));
+        return !existing || Number(existing.quantity || 0) !== Number(item.quantity || 0);
+      });
+    const quantitySession = productMentionChanged
+      ? {
+          ...activeSession,
+          product: textCartItems[0]?.product || activeSession.product,
+          quantity: textCartItems[0]?.quantity || activeSession.quantity,
+          items: textCartItems,
+        }
+      : messageQuantity && sessionItems.length === 1
         ? withSessionQuantity(activeSession, messageQuantity)
         : activeSession;
     const parsed = parseCustomerInfo(text, getSessionItems(quantitySession).map((item) => item.product));
     const mergedSession = mergeCustomerInfo(quantitySession, parsed);
     const mergedItems = getSessionItems(mergedSession);
     const quantityChanged =
-      messageQuantity &&
-      sessionItems.length === 1 &&
-      mergedItems.length === 1 &&
-      Number(sessionItems[0]?.quantity || 0) !== Number(mergedItems[0]?.quantity || 0);
+      productMentionChanged ||
+      (messageQuantity &&
+        sessionItems.length === 1 &&
+        mergedItems.length === 1 &&
+        Number(sessionItems[0]?.quantity || 0) !== Number(mergedItems[0]?.quantity || 0));
     if (
       quantityChanged ||
       mergedSession.customer_name !== activeSession.customer_name ||
@@ -2890,8 +2992,10 @@ module.exports = {
   app,
   answerWithOpenRouter,
   calculateOrder,
+  extractCartItems,
   extractQuantity,
   formatOrderSummary,
+  matchDeliveryZoneFromList,
   startPolling,
   startServer,
 };
