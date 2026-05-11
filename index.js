@@ -2495,9 +2495,22 @@ async function handleMessage(update) {
 
   let activeSession = session;
   if (activeSession && text) {
-    const parsed = parseCustomerInfo(text, getSessionItems(activeSession).map((item) => item.product));
-    const mergedSession = mergeCustomerInfo(activeSession, parsed);
+    const messageQuantity = hasQuantityCue(text) ? extractQuantity(text, null) : null;
+    const sessionItems = getSessionItems(activeSession);
+    const quantitySession =
+      messageQuantity && sessionItems.length === 1
+        ? withSessionQuantity(activeSession, messageQuantity)
+        : activeSession;
+    const parsed = parseCustomerInfo(text, getSessionItems(quantitySession).map((item) => item.product));
+    const mergedSession = mergeCustomerInfo(quantitySession, parsed);
+    const mergedItems = getSessionItems(mergedSession);
+    const quantityChanged =
+      messageQuantity &&
+      sessionItems.length === 1 &&
+      mergedItems.length === 1 &&
+      Number(sessionItems[0]?.quantity || 0) !== Number(mergedItems[0]?.quantity || 0);
     if (
+      quantityChanged ||
       mergedSession.customer_name !== activeSession.customer_name ||
       mergedSession.customerName !== activeSession.customerName ||
       mergedSession.phone !== activeSession.phone ||
@@ -2509,6 +2522,12 @@ async function handleMessage(update) {
       await persistDraftOrder(message.from, activeSession, "order_intent");
       if (hasCustomerInfo(activeSession) && getSessionItems(activeSession).length > 0) {
         await completeOrderIfCustomerInfoReady(chatId, message.from, activeSession, text);
+        return;
+      }
+      if (quantityChanged || activeSession.step === "customer_info") {
+        await sendMessage(chatId, orderInfoPrompt(activeSession), {
+          reply_markup: quantityKeyboard(activeSession.product.id),
+        });
         return;
       }
     }
@@ -2869,6 +2888,7 @@ module.exports = {
   app,
   answerWithOpenRouter,
   calculateOrder,
+  extractQuantity,
   formatOrderSummary,
   startPolling,
   startServer,

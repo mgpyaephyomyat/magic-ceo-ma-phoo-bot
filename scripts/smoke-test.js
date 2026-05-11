@@ -1,5 +1,21 @@
 const http = require("http");
-const { app } = require("../index");
+const { app, extractQuantity } = require("../index");
+
+const quantityCases = [
+  ["2ဗူးနော်", 2],
+  ["၂ဗူးယူမယ်", 2],
+  ["နှစ်ဘူးယူမယ်", 2],
+  ["4ခဲ", 4],
+  ["၂set", 2],
+];
+
+for (const [input, expected] of quantityCases) {
+  const actual = extractQuantity(input, null);
+  if (actual !== expected) {
+    console.error(`Quantity test failed: ${input} => ${actual}, expected ${expected}`);
+    process.exit(1);
+  }
+}
 
 const server = app.listen(0, "127.0.0.1", () => {
   const { port } = server.address();
