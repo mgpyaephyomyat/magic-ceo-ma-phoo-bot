@@ -482,7 +482,8 @@ function formatLegacyOrderSummary(session) {
 }
 
 function formatBasicOrderSummary(session) {
-  const { product, quantity, customerName, phone, address } = session;
+  const { product, quantity, phone, address } = session;
+  const customerName = sessionCustomerName(session);
   const totals = calculateOrder(product, quantity);
 
   return [
@@ -504,7 +505,8 @@ function formatBasicOrderSummary(session) {
 }
 
 function formatOrderSummary(session) {
-  const { customerName, phone, address, city, deliveryInfo } = session;
+  const { phone, address, city, deliveryInfo } = session;
+  const customerName = sessionCustomerName(session);
   const items = getSessionItems(session);
   const totals = calculateCart(items, deliveryInfo);
   const codStatus = getCodLabel(deliveryInfo);
@@ -741,16 +743,17 @@ async function updateCustomerSession(telegramUserId, patch) {
 }
 
 async function persistDraftOrder(from, session, currentIntent = "draft_order") {
+  const normalizedSession = canonicalCustomerSession(session);
   const patch = {
-    last_product: getSessionItems(session).map((item) => item.product_name).join(", ") || null,
-    last_city: session.city || session.deliveryInfo?.township || session.deliveryInfo?.city || null,
-    interests: getSessionItems(session).map((item) => item.product_name),
+    last_product: getSessionItems(normalizedSession).map((item) => item.product_name).join(", ") || null,
+    last_city: normalizedSession.city || normalizedSession.deliveryInfo?.township || normalizedSession.deliveryInfo?.city || null,
+    interests: getSessionItems(normalizedSession).map((item) => item.product_name),
     current_intent: currentIntent,
-    draft_order: cartDraftFromSession(session),
+    draft_order: cartDraftFromSession(normalizedSession),
   };
-  if (sessionCustomerName(session)) patch.customer_name = sessionCustomerName(session);
-  if (session.phone) patch.phone = session.phone;
-  if (session.address) patch.address = session.address;
+  if (sessionCustomerName(normalizedSession)) patch.customer_name = sessionCustomerName(normalizedSession);
+  if (normalizedSession.phone) patch.phone = normalizedSession.phone;
+  if (normalizedSession.address) patch.address = normalizedSession.address;
 
   await updateCustomerSession(from.id, patch);
 }
@@ -810,7 +813,7 @@ async function saveOrder(chat, from, session) {
   const items = getSessionItems(session);
   const totals = calculateCart(items, session.deliveryInfo);
   const customerName =
-    session.customerName ||
+    sessionCustomerName(session) ||
     [from.first_name, from.last_name].filter(Boolean).join(" ") ||
     from.username ||
     String(from.id);
@@ -890,7 +893,7 @@ async function notifyAdmin(order, totals, session, from) {
     !deliveryInfo ? "Note: Unknown delivery zone. Admin must confirm fee/payment." : "",
     order.note ? `Order note: ${cleanHtml(order.note)}` : "",
     "",
-    `Customer: ${cleanHtml(session.customerName || order.customer_name || "")}`,
+    `Customer: ${cleanHtml(sessionCustomerName(session) || order.customer_name || "")}`,
     `Phone: ${cleanHtml(session.phone)}`,
     `City/Township: ${cleanHtml(session.city || deliveryInfo?.township || deliveryInfo?.city || "")}`,
     `Address: ${cleanHtml(session.address)}`,
@@ -957,8 +960,9 @@ async function showProduct(chatId, productId) {
 }
 
 function setSession(chatId, session) {
+  const canonical = canonicalCustomerSession(session);
   sessions.set(String(chatId), {
-    ...session,
+    ...canonical,
     updatedAt: Date.now(),
   });
 }
@@ -1027,7 +1031,19 @@ function parseCustomerInfo(text, product = null) {
 }
 
 function sessionCustomerName(session) {
-  return session?.customerName || session?.customer_name || "";
+  return session?.customer_name || session?.customerName || "";
+}
+
+function canonicalCustomerSession(session) {
+  const customerName = sessionCustomerName(session);
+  return {
+    ...(session || {}),
+    customer_name: customerName || session?.customer_name || "",
+    customerName: customerName || session?.customerName || "",
+    phone: session?.phone || "",
+    address: session?.address || "",
+    city: session?.city || "",
+  };
 }
 
 function missingCustomerInfoFields(session) {
@@ -1039,7 +1055,15 @@ function missingCustomerInfoFields(session) {
 }
 
 function hasCustomerInfo(session) {
-  return Boolean(sessionCustomerName(session) && session?.address && session?.phone);
+  const info = canonicalCustomerSession(session);
+  const result = Boolean(info.customer_name && info.address && info.phone);
+  console.log("hasCustomerInfo", {
+    hasCustomerName: Boolean(info.customer_name),
+    hasPhone: Boolean(info.phone),
+    hasAddress: Boolean(info.address),
+    result,
+  });
+  return result;
 }
 
 function isUsefulAddress(value) {
@@ -1051,11 +1075,22 @@ function isUsefulAddress(value) {
   return !includesAny(normalized, ["မှာမယ်", "ယူမယ်", "order", "buy"]);
 }
 
+function looksLikeCustomerName(value) {
+  const text = String(value || "").trim();
+  if (!text) return false;
+  if (looksLikePhone(text)) return false;
+  if (hasQuantityCue(text) && text.length < 25) return false;
+  const normalized = normalizeText(text);
+  if (includesAny(normalized, ["မှာမယ်", "ယူမယ်", "order", "buy", "ဘူး", "ခဲ", "set"])) return false;
+  return text.length <= 40;
+}
+
 function mergeCustomerInfo(session, extractedInfo = {}) {
-  const next = { ...(session || {}) };
+  const next = canonicalCustomerSession(session || {});
   const customerName = extractedInfo.customerName || extractedInfo.customer_name;
 
-  if (customerName && !isUsefulAddress(customerName) && !looksLikePhone(customerName)) {
+  if (customerName && looksLikeCustomerName(customerName)) {
+    next.customer_name = customerName;
     next.customerName = customerName;
   }
   if (extractedInfo.phone && looksLikePhone(extractedInfo.phone)) {
@@ -1064,6 +1099,16 @@ function mergeCustomerInfo(session, extractedInfo = {}) {
   if (extractedInfo.address && isUsefulAddress(extractedInfo.address)) {
     next.address = extractedInfo.address;
   }
+  if (extractedInfo.city || extractedInfo.last_city) {
+    next.city = extractedInfo.city || extractedInfo.last_city;
+  }
+
+  console.log("customer info extracted", {
+    customer_name: next.customer_name || null,
+    phone: next.phone || null,
+    address: next.address || null,
+    city: next.city || null,
+  });
 
   return next;
 }
@@ -1074,6 +1119,7 @@ function sessionFromStoredCustomerInfo(session, storedSession) {
     customer_name: storedSession.customer_name,
     phone: storedSession.phone,
     address: storedSession.address,
+    city: storedSession.last_city,
   });
 }
 
@@ -1086,6 +1132,8 @@ async function completeOrderIfCustomerInfoReady(chatId, from, session, rawText =
   const nextSession = {
     ...session,
     step: "confirm",
+    awaiting_customer_info: false,
+    customer_name: sessionCustomerName(session),
     customerName: sessionCustomerName(session),
     deliveryInfo,
     city: deliveryInfo
@@ -1354,20 +1402,21 @@ function calculateCart(items, deliveryInfo = null) {
 }
 
 function cartDraftFromSession(session) {
-  const items = getSessionItems(session).map(({ product, ...item }) => item);
-  const totals = calculateCart(getSessionItems(session), session.deliveryInfo);
+  const normalizedSession = canonicalCustomerSession(session);
+  const items = getSessionItems(normalizedSession).map(({ product, ...item }) => item);
+  const totals = calculateCart(getSessionItems(normalizedSession), normalizedSession.deliveryInfo);
 
   return {
     items,
-    customer_name: session.customerName || null,
-    phone: session.phone || null,
-    address: session.address || null,
-    city: session.city || session.deliveryInfo?.township || session.deliveryInfo?.city || null,
+    customer_name: sessionCustomerName(normalizedSession) || null,
+    phone: normalizedSession.phone || null,
+    address: normalizedSession.address || null,
+    city: normalizedSession.city || normalizedSession.deliveryInfo?.township || normalizedSession.deliveryInfo?.city || null,
     delivery_fee: totals.deliveryFee,
     total: totals.deliveryFee === null ? null : totals.total,
-    payment_method: getPaymentLabel(session.deliveryInfo),
-    status: session.deliveryInfo
-      ? session.deliveryInfo.cod_available
+    payment_method: getPaymentLabel(normalizedSession.deliveryInfo),
+    status: normalizedSession.deliveryInfo
+      ? normalizedSession.deliveryInfo.cod_available
         ? "pending"
         : "needs_payment"
       : "needs_review",
@@ -1543,6 +1592,7 @@ async function handleCallback(update) {
     const nextSession = {
       ...session,
       step: "customer_address",
+      awaiting_customer_info: true,
       address: "",
       deliveryInfo: null,
       city: null,
@@ -1558,6 +1608,7 @@ async function handleCallback(update) {
     const storedSession = await getCustomerSession(from.id);
     const session = sessionFromStoredCustomerInfo({
       step: "customer_info",
+      awaiting_customer_info: true,
       product,
       quantity: 1,
       items: [productToCartItem(product, 1)],
@@ -1600,6 +1651,7 @@ async function handleCallback(update) {
     const nextSession = {
       ...(currentSession || {}),
       step: currentSession?.step || "customer_info",
+      awaiting_customer_info: true,
       product,
       quantity,
       items: mergeCartItems([
@@ -1613,6 +1665,7 @@ async function handleCallback(update) {
 
     if (hasCustomerInfo(nextSession)) {
       nextSession.step = "confirm";
+      nextSession.awaiting_customer_info = false;
       setSession(chatId, nextSession);
       await sendMessage(chatId, formatOrderSummary(nextSession), {
         reply_markup: confirmKeyboard(),
@@ -1621,6 +1674,7 @@ async function handleCallback(update) {
     }
 
     setSession(chatId, nextSession);
+    await persistDraftOrder(from, nextSession, "order_intent");
     await sendMessage(chatId, orderInfoPrompt(nextSession), {
       reply_markup: quantityKeyboard(product.id),
     });
@@ -1657,7 +1711,7 @@ async function handleCallback(update) {
     await updateCustomerSession(from.id, {
       last_product: getSessionItems(session).map((item) => item.product_name).join(", "),
       last_city: session.city || session.deliveryInfo?.township || session.deliveryInfo?.city || null,
-      customer_name: session.customerName || null,
+      customer_name: sessionCustomerName(session) || null,
       phone: session.phone || null,
       address: session.address || null,
       interests: getSessionItems(session).map((item) => item.product_name),
@@ -2439,7 +2493,28 @@ async function handleMessage(update) {
     return;
   }
 
-  if (!session && text) {
+  let activeSession = session;
+  if (activeSession && text) {
+    const parsed = parseCustomerInfo(text, getSessionItems(activeSession).map((item) => item.product));
+    const mergedSession = mergeCustomerInfo(activeSession, parsed);
+    if (
+      mergedSession.customer_name !== activeSession.customer_name ||
+      mergedSession.customerName !== activeSession.customerName ||
+      mergedSession.phone !== activeSession.phone ||
+      mergedSession.address !== activeSession.address ||
+      mergedSession.city !== activeSession.city
+    ) {
+      activeSession = mergedSession;
+      setSession(chatId, activeSession);
+      await persistDraftOrder(message.from, activeSession, "order_intent");
+      if (hasCustomerInfo(activeSession) && getSessionItems(activeSession).length > 0) {
+        await completeOrderIfCustomerInfoReady(chatId, message.from, activeSession, text);
+        return;
+      }
+    }
+  }
+
+  if (!activeSession && text) {
     const textOrderSession = await buildOrderSessionFromText(text, message.from);
     if (textOrderSession) {
       setSession(chatId, textOrderSession);
@@ -2451,18 +2526,18 @@ async function handleMessage(update) {
     }
   }
 
-  if (session?.step === "quantity") {
+  if (activeSession?.step === "quantity") {
     const quantity = text ? extractQuantity(text, null) : null;
     if (!quantity) {
       await sendMessage(chatId, "အရေအတွက်လေး 1, 2, 3 ဒါမှမဟုတ် ၂ဘူး စသဖြင့် ပြန်ပေးပေးပါနော်🥰", {
-        reply_markup: quantityKeyboard(session.product.id),
+        reply_markup: quantityKeyboard(activeSession.product.id),
       });
       return;
     }
 
-    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
+    const parsed = parseCustomerInfo(text, getSessionItems(activeSession).map((item) => item.product));
     const nextSession = mergeCustomerInfo({
-      ...withSessionQuantity(session, quantity),
+      ...withSessionQuantity(activeSession, quantity),
       step: "customer_info",
     }, parsed);
     if (await completeOrderIfCustomerInfoReady(chatId, message.from, nextSession, text)) {
@@ -2476,10 +2551,10 @@ async function handleMessage(update) {
     return;
   }
 
-  if (session?.step === "customer_info") {
+  if (activeSession?.step === "customer_info") {
     if (!text) {
-      await sendMessage(chatId, orderInfoPrompt(session), {
-        reply_markup: quantityKeyboard(session.product.id),
+      await sendMessage(chatId, orderInfoPrompt(activeSession), {
+        reply_markup: quantityKeyboard(activeSession.product.id),
       });
       return;
     }
@@ -2487,8 +2562,8 @@ async function handleMessage(update) {
     if (hasQuantityCue(text) && !looksLikePhone(text)) {
       const quantity = extractQuantity(text, null);
       if (quantity) {
-        const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
-        const nextSession = mergeCustomerInfo(withSessionQuantity(session, quantity), parsed);
+        const parsed = parseCustomerInfo(text, getSessionItems(activeSession).map((item) => item.product));
+        const nextSession = mergeCustomerInfo(withSessionQuantity(activeSession, quantity), parsed);
         if (await completeOrderIfCustomerInfoReady(chatId, message.from, nextSession, text)) {
           return;
         }
@@ -2501,7 +2576,7 @@ async function handleMessage(update) {
       }
     }
 
-    const textOrderSession = await buildOrderSessionFromText(text, message.from, session);
+    const textOrderSession = await buildOrderSessionFromText(text, message.from, activeSession);
     if (textOrderSession) {
       setSession(chatId, textOrderSession);
       await persistDraftOrder(message.from, textOrderSession, "order_intent");
@@ -2511,8 +2586,8 @@ async function handleMessage(update) {
       return;
     }
 
-    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
-    const nextSession = mergeCustomerInfo(session, parsed);
+    const parsed = parseCustomerInfo(text, getSessionItems(activeSession).map((item) => item.product));
+    const nextSession = mergeCustomerInfo(activeSession, parsed);
     if (hasCustomerInfo(nextSession)) {
       await completeOrderIfCustomerInfoReady(chatId, message.from, nextSession, text);
       return;
@@ -2527,16 +2602,18 @@ async function handleMessage(update) {
     }
 
     setSession(chatId, {
-      ...session,
+      ...activeSession,
       step: "customer_address",
+      customer_name: text,
       customerName: text,
+      awaiting_customer_info: true,
     });
     await sendMessage(chatId, "လိပ်စာအပြည့်အစုံလေး ပေးပေးပါနော်🥰");
     return;
   }
 
-  if (session?.step === "customer_address") {
-    const textOrderSession = await buildOrderSessionFromText(text, message.from, session);
+  if (activeSession?.step === "customer_address") {
+    const textOrderSession = await buildOrderSessionFromText(text, message.from, activeSession);
     if (textOrderSession) {
       setSession(chatId, textOrderSession);
       await persistDraftOrder(message.from, textOrderSession, "order_intent");
@@ -2546,8 +2623,8 @@ async function handleMessage(update) {
       return;
     }
 
-    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
-    const mergedSession = mergeCustomerInfo(session, parsed);
+    const parsed = parseCustomerInfo(text, getSessionItems(activeSession).map((item) => item.product));
+    const mergedSession = mergeCustomerInfo(activeSession, parsed);
     if (await completeOrderIfCustomerInfoReady(chatId, message.from, mergedSession, text)) {
       return;
     }
@@ -2564,9 +2641,10 @@ async function handleMessage(update) {
     }
 
     const nextSession = {
-      ...session,
+      ...activeSession,
       step: "customer_phone",
       address: text,
+      awaiting_customer_info: true,
     };
     setSession(chatId, nextSession);
     await persistDraftOrder(message.from, nextSession, "order_intent");
@@ -2574,8 +2652,8 @@ async function handleMessage(update) {
     return;
   }
 
-  if (session?.step === "customer_phone") {
-    const textOrderSession = await buildOrderSessionFromText(text, message.from, session);
+  if (activeSession?.step === "customer_phone") {
+    const textOrderSession = await buildOrderSessionFromText(text, message.from, activeSession);
     if (textOrderSession) {
       setSession(chatId, textOrderSession);
       await persistDraftOrder(message.from, textOrderSession, "order_intent");
@@ -2585,8 +2663,8 @@ async function handleMessage(update) {
       return;
     }
 
-    const parsed = parseCustomerInfo(text, getSessionItems(session).map((item) => item.product));
-    const mergedSession = mergeCustomerInfo(session, parsed);
+    const parsed = parseCustomerInfo(text, getSessionItems(activeSession).map((item) => item.product));
+    const mergedSession = mergeCustomerInfo(activeSession, parsed);
     if (await completeOrderIfCustomerInfoReady(chatId, message.from, mergedSession, text)) {
       return;
     }
@@ -2597,13 +2675,14 @@ async function handleMessage(update) {
       return;
     }
 
-    const deliveryInfo = await getDeliveryInfo(session.address);
+    const deliveryInfo = await getDeliveryInfo(activeSession.address);
     const nextSession = {
-      ...session,
+      ...activeSession,
       step: "confirm",
+      awaiting_customer_info: false,
       phone,
       deliveryInfo,
-      city: deliveryInfo?.township || deliveryInfo?.city || session.city,
+      city: deliveryInfo?.township || deliveryInfo?.city || activeSession.city,
       paymentMethod: getPaymentLabel(deliveryInfo),
     };
     setSession(chatId, nextSession);
@@ -2614,7 +2693,7 @@ async function handleMessage(update) {
     return;
   }
 
-  if (session?.step === "phone") {
+  if (activeSession?.step === "phone") {
     const phone = message.contact?.phone_number || text;
     if (!phone || (!message.contact && !looksLikePhone(phone))) {
       await sendMessage(chatId, "ဖုန်းနံပါတ်ကို မှန်မှန်ကန်ကန် ရိုက်ပေးပါရှင့်။");
@@ -2622,7 +2701,7 @@ async function handleMessage(update) {
     }
 
     setSession(chatId, {
-      ...session,
+      ...activeSession,
       step: "address",
       phone,
     });
@@ -2630,14 +2709,14 @@ async function handleMessage(update) {
     return;
   }
 
-  if (session?.step === "address") {
+  if (activeSession?.step === "address") {
     if (!text || text.length < 8) {
       await sendMessage(chatId, "လိပ်စာကို နည်းနည်းပိုပြည့်စုံအောင် ရိုက်ပေးပါရှင့်။");
       return;
     }
 
     const nextSession = {
-      ...session,
+      ...activeSession,
       step: "confirm",
       address: text,
     };
