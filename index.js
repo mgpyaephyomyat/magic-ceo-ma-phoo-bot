@@ -80,6 +80,16 @@ const PRODUCT_DISPLAY_NAMES = {
   "detox essence": "အဆိပ်ထုတ် Essence serum",
 };
 
+const PRODUCT_STORAGE_IMAGES = {
+  bodywash: ["bodywashprice.jpg", "bodywashusage.png"],
+  shampoo: ["shampooprice.jpg", "shampoousage.jpg"],
+  hairmask: ["hairmaskprice.jpg", "hairmaskusage.jpg"],
+  "hair oil": ["hairessentialoil.jpg", "hairessentialoilusage.png"],
+  "whitening soap": ["soapprice.jpg", "soapusage.jpg"],
+  "toothpaste set": ["toothpasteprice.jpg", "toothpasteusage.png"],
+  "acne face wash": ["cleanserprice.jpg"],
+};
+
 const YANGON_ALIASES = [
   "ရန်ကုန်",
   "yangon",
@@ -390,6 +400,22 @@ function productDisplayName(productOrName) {
     normalized.includes(key)
   );
   return matchedKey ? PRODUCT_DISPLAY_NAMES[matchedKey] : String(name || "");
+}
+
+function productImageFiles(productOrName) {
+  const name = typeof productOrName === "string" ? productOrName : productOrName?.name;
+  const normalized = normalizeText(name);
+  if (PRODUCT_STORAGE_IMAGES[normalized]) return PRODUCT_STORAGE_IMAGES[normalized];
+
+  const matchedKey = Object.keys(PRODUCT_STORAGE_IMAGES).find((key) =>
+    normalized.includes(key)
+  );
+  return matchedKey ? PRODUCT_STORAGE_IMAGES[matchedKey] : [];
+}
+
+function publicProductImageUrl(fileName) {
+  const baseUrl = String(SUPABASE_URL || "").replace(/\/+$/, "");
+  return `${baseUrl}/storage/v1/object/public/productimgs/${encodeURIComponent(fileName)}`;
 }
 
 function productTitle(product) {
@@ -973,17 +999,29 @@ async function showProductsByCategory(chatId, category) {
   });
 }
 
+async function sendProductImages(chatId, productName) {
+  const files = productImageFiles(productName);
+  let sentCount = 0;
+
+  for (const fileName of files) {
+    try {
+      await sendPhoto(chatId, publicProductImageUrl(fileName));
+      sentCount += 1;
+    } catch (error) {
+      console.error("Product storage photo failed", fileName, error.message);
+    }
+  }
+
+  return sentCount;
+}
+
 async function showProduct(chatId, productId) {
   const product = await getProduct(productId);
-  const options = {
-    caption: formatProductPhotoCaption(product),
-    reply_markup: productActionsKeyboard(product.id),
-  };
+  const sentMappedImages = await sendProductImages(chatId, product.name);
 
-  if (product.image_url) {
+  if (!sentMappedImages && product.image_url) {
     try {
-      await sendPhoto(chatId, product.image_url, options);
-      return;
+      await sendPhoto(chatId, product.image_url);
     } catch (error) {
       console.error("Product photo failed", error.message);
     }
@@ -2996,6 +3034,7 @@ module.exports = {
   extractQuantity,
   formatOrderSummary,
   matchDeliveryZoneFromList,
+  productImageFiles,
   startPolling,
   startServer,
 };

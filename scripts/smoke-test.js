@@ -4,6 +4,7 @@ const {
   extractCartItems,
   extractQuantity,
   matchDeliveryZoneFromList,
+  productImageFiles,
 } = require("../index");
 
 const quantityCases = [
@@ -80,6 +81,24 @@ for (const [input, expectedFee] of zoneCases) {
   const zone = matchDeliveryZoneFromList(input, mockZones);
   if (!zone || zone.delivery_fee !== expectedFee) {
     console.error(`Zone test failed: ${input} => ${zone?.delivery_fee}, expected ${expectedFee}`);
+    process.exit(1);
+  }
+}
+
+const imageCases = [
+  ["BodyWash", ["bodywashprice.jpg", "bodywashusage.png"]],
+  ["Shampoo", ["shampooprice.jpg", "shampoousage.jpg"]],
+  ["HairMask", ["hairmaskprice.jpg", "hairmaskusage.jpg"]],
+  ["Hair Oil", ["hairessentialoil.jpg", "hairessentialoilusage.png"]],
+  ["Whitening Soap", ["soapprice.jpg", "soapusage.jpg"]],
+  ["Toothpaste Set", ["toothpasteprice.jpg", "toothpasteusage.png"]],
+  ["Acne Face Wash", ["cleanserprice.jpg"]],
+];
+
+for (const [productName, expectedFiles] of imageCases) {
+  const actualFiles = productImageFiles(productName);
+  if (JSON.stringify(actualFiles) !== JSON.stringify(expectedFiles)) {
+    console.error(`Image mapping test failed: ${productName} => ${JSON.stringify(actualFiles)}, expected ${JSON.stringify(expectedFiles)}`);
     process.exit(1);
   }
 }
