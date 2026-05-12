@@ -1,8 +1,10 @@
 const http = require("http");
 const {
   app,
+  calculateCart,
   extractCartItems,
   extractQuantity,
+  isLikelyMyanmarAddress,
   matchDeliveryZoneFromList,
   productImageFiles,
 } = require("../index");
@@ -83,6 +85,70 @@ for (const [input, expectedFee] of zoneCases) {
     console.error(`Zone test failed: ${input} => ${zone?.delivery_fee}, expected ${expectedFee}`);
     process.exit(1);
   }
+}
+
+const myanmarAddressCases = [
+  ["ပျော်ဘွယ်Royalရုံး", true],
+  ["Singapore", false],
+  ["စင်္ကာပူ", false],
+];
+
+for (const [input, expected] of myanmarAddressCases) {
+  const actual = isLikelyMyanmarAddress(input);
+  if (actual !== expected) {
+    console.error(`Myanmar address test failed: ${input} => ${actual}, expected ${expected}`);
+    process.exit(1);
+  }
+}
+
+const gateDeliveryInfo = {
+  delivery_flow: "gate",
+  payment_method: "ကားဂိတ်တင်",
+  delivery_fee: 3000,
+  cod_available: false,
+};
+
+function mockCartItem(productName, quantity, price = 38000, productId = productName) {
+  return {
+    product_id: productId,
+    product_name: productName,
+    quantity,
+    unit: "ဘူး",
+    price,
+    subtotal: price * quantity,
+    product: { name: productName, price },
+  };
+}
+
+const gateDefaultTotals = calculateCart([mockCartItem("BodyWash", 1, 38000, 1)], gateDeliveryInfo);
+if (gateDefaultTotals.deliveryFee !== 3000 || gateDefaultTotals.total !== 41000) {
+  console.error(`Gate fee test failed: ${JSON.stringify(gateDefaultTotals)}`);
+  process.exit(1);
+}
+
+const bodyWashFreeTotals = calculateCart([mockCartItem("BodyWash", 3, 38000, 1)], gateDeliveryInfo);
+if (bodyWashFreeTotals.deliveryFee !== 0 || !bodyWashFreeTotals.freeDeliveryReason.includes("တန်ဆာခ free")) {
+  console.error(`BodyWash gate free test failed: ${JSON.stringify(bodyWashFreeTotals)}`);
+  process.exit(1);
+}
+
+const mixedFreeTotals = calculateCart(
+  [
+    mockCartItem("BodyWash", 1, 38000, 1),
+    mockCartItem("Shampoo", 1, 38000, 2),
+    mockCartItem("Toothpaste Set", 1, 38000, 3),
+  ],
+  gateDeliveryInfo
+);
+if (mixedFreeTotals.deliveryFee !== 0 || !mixedFreeTotals.freeDeliveryReason.includes("ပစ္စည်း ၃မျိုး")) {
+  console.error(`Mixed gate free test failed: ${JSON.stringify(mixedFreeTotals)}`);
+  process.exit(1);
+}
+
+const singleProductQuantityTotals = calculateCart([mockCartItem("Shampoo", 3, 38000, 2)], gateDeliveryInfo);
+if (singleProductQuantityTotals.deliveryFee !== 3000 || singleProductQuantityTotals.isFreeDelivery) {
+  console.error(`Single non-special quantity gate test failed: ${JSON.stringify(singleProductQuantityTotals)}`);
+  process.exit(1);
 }
 
 const imageCases = [

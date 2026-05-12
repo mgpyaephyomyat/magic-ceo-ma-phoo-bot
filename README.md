@@ -17,7 +17,7 @@ AI-powered Telegram ecommerce assistant for a Myanmar cosmetics shop.
 - Product photo detail view using `products.image_url`
 - Burmese AI assistant for product, usage, benefit, delivery, payment, and order questions
 - Delivery-zone based fee and payment logic
-- Unknown delivery zones become `needs_review`, not automatic cash-on-delivery
+- Myanmar non-COD cities use `ကားဂိတ်တင်`; foreign delivery becomes `needs_review`
 - Delivery/payment and free delivery order calculation
 - Customer session memory in Supabase
 - Saves orders and order items to Supabase
@@ -39,6 +39,11 @@ TELEGRAM_WEBHOOK_SECRET=choose_a_long_random_secret
 USE_POLLING=false
 POLLING_DROP_PENDING=false
 DEFAULT_DELIVERY_FEE=3000
+GATE_DELIVERY_FEE=3000
+KPAY_PHONE=09963166710
+KPAY_NAME=Phoo Myat Aung
+WAVE_PHONE=09762655807
+WAVE_NAME=Ma Phoo Myat Aung
 PORT=3000
 ```
 
@@ -175,7 +180,7 @@ BodyWash 2, Shampoo 1, HairMask 1
 BodyWash 1 ဘူး နဲ့ Toothpaste 1 set မှာမယ်
 ```
 
-The bot tries to detect customer name, product, quantity, phone, city/township, and address. If delivery zone is unknown, the order is marked `needs_review` and admin is notified.
+The bot tries to detect customer name, product, quantity, phone, city/township, and address. If the address is a Myanmar city/township but not COD available, the bot uses the gate-delivery prepaid flow (`ကားဂိတ်တင်`) with `GATE_DELIVERY_FEE`. Foreign/international addresses are marked `needs_review`.
 
 Draft carts are stored in `customer_sessions.draft_order` like:
 
@@ -204,16 +209,16 @@ Draft carts are stored in `customer_sessions.draft_order` like:
 
 Free delivery rules:
 
-- Mixed carts get free delivery when total cart quantity is at least 3.
-- BodyWash single-product orders get free delivery at quantity 4 or more.
-- Other single-product orders use `products.free_delivery_qty`.
-- Unknown delivery zones do not get a final delivery fee until admin confirms.
+- BodyWash gets free delivery / gate-delivery when quantity is at least 3.
+- Whitening Soap gets free delivery / gate-delivery when quantity is at least 4.
+- Mixed carts get free delivery / gate-delivery when there are at least 3 different product types.
+- Gate-delivery free text uses `တန်ဆာခ free`; COD delivery free text uses `Deli free`.
 
 Customer-facing payment labels:
 
 - `အိမ်ရောက်ငွေချေ` for eligible delivery zones
-- `ကြိုလွှဲငွေချေ` for prepaid zones
-- `Admin confirm` when delivery zone is unknown
+- `ကားဂိတ်တင်` for Myanmar non-COD gate-delivery orders
+- `Admin confirm` for foreign/international delivery review
 
 Delivery fee/payment rules use `delivery_zones` as the source of truth:
 
@@ -221,8 +226,9 @@ Delivery fee/payment rules use `delivery_zones` as the source of truth:
 - Matching Mandalay Region aliases: `4,800 Ks` and `အိမ်ရောက်ငွေချေ`
 - Matching Naypyitaw Region aliases: `4,800 Ks`; payment follows `delivery_zones.cod_available`
 - Other matched rows with `cod_available=true`: `6,000 Ks` and `အိမ်ရောက်ငွေချေ`
-- Matched rows with `cod_available=false`: `ကြိုလွှဲငွေချေ`
-- Unknown city/township: `Admin confirm`; no automatic delivery fee
+- Matched rows with `cod_available=false`: `ကားဂိတ်တင်` and `GATE_DELIVERY_FEE`
+- Myanmar city/township without a COD match: `ကားဂိတ်တင်`, `3,000 Ks` gate fee, status `awaiting_payment`
+- Foreign/international address: `Admin confirm`; no automatic delivery fee
 
 ## Admin Notification
 
