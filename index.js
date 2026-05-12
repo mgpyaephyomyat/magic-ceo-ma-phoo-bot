@@ -51,6 +51,7 @@ const openRouter = axios.create({
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
 const sessions = new Map();
+const productImageSendGuards = new Map();
 const deliveryFee = Number(DEFAULT_DELIVERY_FEE) || 3000;
 let pollingActive = false;
 
@@ -416,6 +417,20 @@ function productImageFiles(productOrName) {
 function publicProductImageUrl(fileName) {
   const baseUrl = String(SUPABASE_URL || "").replace(/\/+$/, "");
   return `${baseUrl}/storage/v1/object/public/productimgs/${encodeURIComponent(fileName)}`;
+}
+
+function productImageGuardKey(chatId, productName) {
+  return `${chatId}:${normalizeText(productName)}`;
+}
+
+function wasProductImageRecentlySent(chatId, productName) {
+  const key = productImageGuardKey(chatId, productName);
+  const lastSentAt = productImageSendGuards.get(key) || 0;
+  return Date.now() - lastSentAt < 10000;
+}
+
+function markProductImagesSent(chatId, productName) {
+  productImageSendGuards.set(productImageGuardKey(chatId, productName), Date.now());
 }
 
 function productTitle(product) {
@@ -1000,16 +1015,30 @@ async function showProductsByCategory(chatId, category) {
 }
 
 async function sendProductImages(chatId, productName) {
+  if (wasProductImageRecentlySent(chatId, productName)) {
+    console.log("product images already sent", productName);
+    return 0;
+  }
+
   const files = productImageFiles(productName);
+  const urls = files.map(publicProductImageUrl);
+  const uniqueUrls = [...new Set(urls.filter(Boolean))];
+  console.log("sending product images", productName, uniqueUrls);
+  if (uniqueUrls.length === 0) return 0;
+
   let sentCount = 0;
 
-  for (const fileName of files) {
+  for (const imageUrl of uniqueUrls) {
     try {
-      await sendPhoto(chatId, publicProductImageUrl(fileName));
+      await sendPhoto(chatId, imageUrl);
       sentCount += 1;
     } catch (error) {
-      console.error("Product storage photo failed", fileName, error.message);
+      console.error("Product storage photo failed", imageUrl, error.message);
     }
+  }
+
+  if (sentCount > 0) {
+    markProductImagesSent(chatId, productName);
   }
 
   return sentCount;
