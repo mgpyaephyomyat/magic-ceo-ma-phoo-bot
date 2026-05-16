@@ -39,6 +39,27 @@ if (
   process.exit(1);
 }
 
+const englishNameLocalPhoneCase = parseCustomerInfo("Zin mar win 84110854\nပဲနွယ်ကုန်း");
+if (
+  englishNameLocalPhoneCase.customerName !== "Zin mar win" ||
+  englishNameLocalPhoneCase.phone ||
+  englishNameLocalPhoneCase.invalidPhone !== "84110854" ||
+  englishNameLocalPhoneCase.address !== "ပဲနွယ်ကုန်း"
+) {
+  console.error(`English name/local phone parse test failed: ${JSON.stringify(englishNameLocalPhoneCase)}`);
+  process.exit(1);
+}
+
+const englishNameFullPhoneCase = parseCustomerInfo("Zin Mar Win\n0984110854\nပဲနွယ်ကုန်း");
+if (
+  englishNameFullPhoneCase.customerName !== "Zin Mar Win" ||
+  englishNameFullPhoneCase.phone !== "0984110854" ||
+  englishNameFullPhoneCase.address !== "ပဲနွယ်ကုန်း"
+) {
+  console.error(`English name/full phone parse test failed: ${JSON.stringify(englishNameFullPhoneCase)}`);
+  process.exit(1);
+}
+
 const mockProducts = [
   { id: 1, name: "BodyWash", price: 38000, unit: "ဘူး" },
   { id: 2, name: "Shampoo", price: 38000, unit: "ဘူး" },
@@ -50,6 +71,19 @@ const mockProducts = [
   { id: 8, name: "Pore Tightening Toner", price: 45000, unit: "ဘူး" },
   { id: 9, name: "Detox Essence", price: 45000, unit: "ဘူး" },
 ];
+
+const productLineCustomerInfoCase = parseCustomerInfo(
+  "ရေချိုးဆပ်ပြာ 1ဘူး\nZin Mar Win\n0984110854\nပဲနွယ်ကုန်း",
+  [mockProducts[0]]
+);
+if (
+  productLineCustomerInfoCase.customerName !== "Zin Mar Win" ||
+  productLineCustomerInfoCase.phone !== "0984110854" ||
+  productLineCustomerInfoCase.address !== "ပဲနွယ်ကုန်း"
+) {
+  console.error(`Product-line customer info parse test failed: ${JSON.stringify(productLineCustomerInfoCase)}`);
+  process.exit(1);
+}
 
 const cartCases = [
   ["ရေချိုးဆပ်ပြာ 1 ဗူး", [["BodyWash", 1]]],

@@ -1315,6 +1315,7 @@ function orderInfoPrompt(session) {
     : "* အချက်အလက်ပြည့်စုံပါပြီ";
 
   return [
+    session.invalid_phone ? "ဖုန်းနံပါတ်ကို 09 နဲ့စပြီး ပြန်ပေးပေးပါရှင့်။" : "",
     "ဟုတ်ညီမလေး🥰",
     "မဖူးကို",
     "",
@@ -1324,6 +1325,31 @@ function orderInfoPrompt(session) {
     "",
     `မှာယူမည့်ပစ္စည်း: ${itemText}`,
   ].join("\n");
+}
+
+function normalizePhoneNumber(value) {
+  const digits = normalizeMyanmarDigits(value).replace(/\D/g, "");
+  if (!digits) return { phone: "", invalidPhone: "" };
+  if (digits.startsWith("09") && digits.length >= 9) return { phone: digits, invalidPhone: "" };
+  if (digits.startsWith("95") && digits.length >= 10) return { phone: `0${digits.slice(2)}`, invalidPhone: "" };
+  if (digits.startsWith("9") && digits.length >= 9) return { phone: `0${digits}`, invalidPhone: "" };
+  if (digits.length === 8) return { phone: "", invalidPhone: digits };
+  return { phone: "", invalidPhone: digits };
+}
+
+function findPhoneInLine(line) {
+  const normalized = normalizeMyanmarDigits(line);
+  const phoneMatch =
+    normalized.match(/(?:\+?95|0?9)[\d\s().-]{6,}\d/) ||
+    normalized.match(/(?<!\d)\d{8}(?!\d)/);
+  if (!phoneMatch) return null;
+  const { phone, invalidPhone } = normalizePhoneNumber(phoneMatch[0]);
+  return {
+    raw: phoneMatch[0],
+    phone,
+    invalidPhone,
+    index: phoneMatch.index || 0,
+  };
 }
 
 function parseCustomerInfo(text, product = null) {
@@ -1341,23 +1367,30 @@ function parseCustomerInfo(text, product = null) {
     )
     .filter(Boolean);
 
-  const phoneIndex = lines.findIndex((line) => /(?:\+?95|09)[\d\s().-]{5,}/.test(line));
-  const phoneMatch = phoneIndex >= 0 ? lines[phoneIndex].match(/(?:\+?95|09)[\d\s().-]{5,}/) : null;
-  const phone = phoneMatch ? phoneMatch[0].trim() : "";
+  const phoneIndex = lines.findIndex((line) => findPhoneInLine(line));
+  const phoneMatch = phoneIndex >= 0 ? findPhoneInLine(lines[phoneIndex]) : null;
+  const phone = phoneMatch?.phone || "";
+  const invalidPhone = phoneMatch?.invalidPhone || "";
   const phoneLine = phoneIndex >= 0 ? lines[phoneIndex] : "";
   const beforePhone = phoneMatch ? phoneLine.slice(0, phoneMatch.index).trim() : "";
-  const afterPhone = phoneMatch ? phoneLine.slice(phoneMatch.index + phoneMatch[0].length).trim() : "";
+  const afterPhone = phoneMatch ? phoneLine.slice(phoneMatch.index + phoneMatch.raw.length).trim() : "";
   const otherLines = lines.filter((_, index) => index !== phoneIndex);
 
   if (phoneIndex === 1 && lines[0] && lines.length >= 3) {
-    return {
+    const extractedInfo = {
       customerName: rawLines[0],
       address: rawLines.slice(phoneIndex + 1).join("\n").trim(),
       phone,
+      invalidPhone,
     };
+    console.log("parsed customer info", extractedInfo);
+    return extractedInfo;
   }
 
-  const rawCustomerName = beforePhone || (phoneIndex === 0 ? "" : otherLines[0] || "");
+  const previousNameLine = phoneIndex > 0
+    ? [...lines.slice(0, phoneIndex)].reverse().find((line) => looksLikeCustomerName(cleanCustomerNameLine(line, product) || line))
+    : "";
+  const rawCustomerName = beforePhone || previousNameLine || (phoneIndex === 0 ? "" : otherLines[0] || "");
   const hasStandaloneNameLine = phoneIndex > 0 && rawCustomerName === lines[0];
   const customerName = hasStandaloneNameLine
     ? rawCustomerName
@@ -1370,7 +1403,9 @@ function parseCustomerInfo(text, product = null) {
       ? lines.slice(phoneIndex + 1).join(", ").trim()
       : otherLines.slice(1).join(", ").trim());
 
-  return { customerName, address, phone };
+  const extractedInfo = { customerName, address, phone, invalidPhone };
+  console.log("parsed customer info", extractedInfo);
+  return extractedInfo;
 }
 
 function sessionCustomerName(session) {
@@ -1384,6 +1419,7 @@ function canonicalCustomerSession(session) {
     customer_name: customerName || session?.customer_name || "",
     customerName: customerName || session?.customerName || "",
     phone: session?.phone || "",
+    invalid_phone: session?.invalid_phone || session?.invalidPhone || "",
     address: session?.address || "",
     city: session?.city || "",
   };
@@ -1393,16 +1429,17 @@ function missingCustomerInfoFields(session) {
   const missing = [];
   if (!sessionCustomerName(session)) missing.push("နာမည်");
   if (!session?.address) missing.push("လိပ်စာ(အိမ်/လမ်းနံပတ်ပါအပါ)");
-  if (!session?.phone) missing.push("Phနံပတ်");
+  if (!session?.phone || session?.invalid_phone) missing.push("Phနံပတ်");
   return missing;
 }
 
 function hasCustomerInfo(session) {
   const info = canonicalCustomerSession(session);
-  const result = Boolean(info.customer_name && info.address && info.phone);
+  const result = Boolean(info.customer_name && info.address && info.phone && !info.invalid_phone);
   console.log("hasCustomerInfo", {
     hasCustomerName: Boolean(info.customer_name),
     hasPhone: Boolean(info.phone),
+    hasInvalidPhone: Boolean(info.invalid_phone),
     hasAddress: Boolean(info.address),
     result,
   });
@@ -1424,6 +1461,33 @@ function looksLikeCustomerName(value) {
   if (looksLikePhone(text)) return false;
   if (hasQuantityCue(text) && text.length < 25) return false;
   const normalized = normalizeText(text);
+  const compact = normalized.replace(/\s+/g, "");
+  const invalidNameAliases = [
+    "ရေချိုးဆပ်ပြာ",
+    "ရေ ဆပ်ပြာ",
+    "ခေါင်းလျော်ရည်",
+    "ခေါင်းလျှော်ရည်",
+    "ပေါင်းဆေး",
+    "ဆံပင်တုန်ဆီ",
+    "ဆပ်ပြာခဲ",
+    "သွားတိုက်ဆေး",
+    "bodywash",
+    "body wash",
+    "shampoo",
+    "hairmask",
+    "hair mask",
+    "hair oil",
+    "toothpaste",
+    "toothpaste set",
+  ].map((alias) => normalizeText(alias));
+  const isProductName = invalidNameAliases.some((alias) => {
+    const compactAlias = alias.replace(/\s+/g, "");
+    return normalized === alias || compact === compactAlias || normalized.includes(alias);
+  });
+  if (isProductName) {
+    console.log("invalid customer name rejected", text);
+    return false;
+  }
   if (includesAny(normalized, ["မှာမယ်", "ယူမယ်", "order", "buy", "ဘူး", "ခဲ", "set"])) return false;
   return text.length <= 40;
 }
@@ -1435,9 +1499,19 @@ function mergeCustomerInfo(session, extractedInfo = {}) {
   if (customerName && looksLikeCustomerName(customerName)) {
     next.customer_name = customerName;
     next.customerName = customerName;
+  } else if (customerName) {
+    console.log("invalid customer name rejected", customerName);
+    next.customer_name = "";
+    next.customerName = "";
   }
   if (extractedInfo.phone && looksLikePhone(extractedInfo.phone)) {
     next.phone = extractedInfo.phone;
+  }
+  if (extractedInfo.invalidPhone || extractedInfo.invalid_phone) {
+    next.phone = "";
+    next.invalid_phone = extractedInfo.invalidPhone || extractedInfo.invalid_phone;
+  } else if (extractedInfo.phone) {
+    next.invalid_phone = "";
   }
   if (extractedInfo.address && isUsefulAddress(extractedInfo.address)) {
     next.address = extractedInfo.address;
@@ -1449,6 +1523,7 @@ function mergeCustomerInfo(session, extractedInfo = {}) {
   console.log("customer info extracted", {
     customer_name: next.customer_name || null,
     phone: next.phone || null,
+    invalid_phone: next.invalid_phone || null,
     address: next.address || null,
     city: next.city || null,
   });
@@ -1980,11 +2055,14 @@ async function handleCallback(update) {
 
   if (data === "use_saved_info") {
     const session = getSession(chatId);
-    if (!session || !hasCustomerInfo(session)) {
+    const savedInfo = session?.savedCustomerInfo;
+    const nextSession = savedInfo ? mergeCustomerInfo(session, savedInfo) : session;
+    if (!nextSession || !hasCustomerInfo(nextSession)) {
       await showCategories(chatId, "သိမ်းထားတဲ့ လိပ်စာအချက်အလက် မတွေ့သေးပါဘူးရှင့်။ ပစ္စည်းလေး ပြန်ရွေးပေးပါနော်။");
       return;
     }
-    await completeOrderIfCustomerInfoReady(chatId, from, session);
+    delete nextSession.savedCustomerInfo;
+    await completeOrderIfCustomerInfoReady(chatId, from, nextSession);
     return;
   }
 
@@ -2011,18 +2089,27 @@ async function handleCallback(update) {
   if (data.startsWith("order:")) {
     const product = await getProduct(data.slice(6));
     const storedSession = await getCustomerSession(from.id);
-    const session = sessionFromStoredCustomerInfo({
+    const savedCustomerInfo = storedSession
+      ? {
+          customer_name: storedSession.customer_name,
+          phone: storedSession.phone,
+          address: storedSession.address,
+          city: storedSession.last_city,
+        }
+      : null;
+    const session = {
       step: "customer_info",
       awaiting_customer_info: true,
       product,
       quantity: 1,
       items: [productToCartItem(product, 1)],
       from,
-    }, storedSession);
+      savedCustomerInfo,
+    };
     setSession(chatId, session);
     await persistDraftOrder(from, session, "order_intent");
 
-    if (hasCustomerInfo(session)) {
+    if (savedCustomerInfo?.customer_name && savedCustomerInfo?.phone && savedCustomerInfo?.address) {
       await sendMessage(chatId, "အရင်လိပ်စာနဲ့ပဲပို့ပေးရမလားရှင့်?", {
         reply_markup: savedCustomerInfoKeyboard(),
       });
