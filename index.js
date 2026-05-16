@@ -231,6 +231,20 @@ const NAYPYITAW_ALIASES = [
 ];
 
 const TACHILEIK_ALIASES = ["တာချီလိတ်", "tachileik", "tachilek"];
+const TACHILEIK_DELIVERY_FEE = 10000;
+
+const BUILT_IN_DELIVERY_ZONES = [
+  {
+    city: "တာချီလိတ်",
+    township: null,
+    aliases: TACHILEIK_ALIASES,
+    cod_available: true,
+    delivery_fee: TACHILEIK_DELIVERY_FEE,
+    payment_method: "အိမ်ရောက်ငွေချေ",
+    estimated_days: null,
+    note: "တာချီလိတ် special COD",
+  },
+];
 
 const FAR_ZONE_CITY_ALIASES = [
   "ရန်ကုန်အဝေးမြို့နယ်များ",
@@ -688,9 +702,16 @@ async function getDeliveryZones() {
   const { data, error } = await supabase.from("delivery_zones").select("*");
   if (error) {
     console.error("delivery_zones unavailable", error.message);
-    return [];
+    return BUILT_IN_DELIVERY_ZONES;
   }
-  return data || [];
+  const zones = data || [];
+  const normalizedZoneText = normalizeText(
+    zones.map((zone) => [zone.city, zone.township, ...(Array.isArray(zone.aliases) ? zone.aliases : [])].join(" ")).join(" ")
+  );
+  const missingBuiltIns = BUILT_IN_DELIVERY_ZONES.filter((zone) =>
+    !TACHILEIK_ALIASES.some((alias) => normalizedZoneText.includes(normalizeText(alias)))
+  );
+  return [...zones, ...missingBuiltIns];
 }
 
 function isFarYangonZone(zone) {
@@ -706,6 +727,13 @@ function isFarMandalayZone(zone) {
 function isFarDeliveryZone(zone) {
   const city = normalizeText(zone?.city);
   return FAR_ZONE_CITY_ALIASES.some((alias) => city.includes(normalizeText(alias)));
+}
+
+function isTachileikZone(zone) {
+  const haystack = [zone?.city, zone?.township, ...(Array.isArray(zone?.aliases) ? zone.aliases : [])]
+    .map((value) => normalizeText(value))
+    .join(" ");
+  return TACHILEIK_ALIASES.some((alias) => haystack.includes(normalizeText(alias)));
 }
 
 function zoneTokens(zone) {
@@ -761,7 +789,7 @@ function getZoneMatchCandidates(zones, normalizedInput) {
         zone,
         alias,
         score: alias.length,
-        priority: isFarDeliveryZone(zone) ? 1 : 0,
+        priority: isTachileikZone(zone) ? -1 : isFarDeliveryZone(zone) ? 1 : 0,
       }))
     )
     .filter((candidate) => aliasMatchesInput(normalizedInput, candidate.alias))
@@ -789,14 +817,17 @@ function zoneHasAnyAlias(zone, aliases) {
 }
 
 function isAutoCodRegion(zone) {
-  return zoneHasAnyAlias(zone, [...YANGON_ALIASES, ...MANDALAY_ALIASES]);
+  return zoneHasAnyAlias(zone, [...YANGON_ALIASES, ...MANDALAY_ALIASES, ...TACHILEIK_ALIASES]);
 }
 
 function normalizeDeliveryZone(zone) {
   if (!zone) return null;
-  const codAvailable = Boolean(isAutoCodRegion(zone) || zone.cod_available);
+  const tachileik = isTachileikZone(zone);
+  const codAvailable = Boolean(tachileik || isAutoCodRegion(zone) || zone.cod_available);
   const normalizedFee = Number(zone.delivery_fee);
-  const deliveryFeeValue = Number.isFinite(normalizedFee)
+  const deliveryFeeValue = tachileik
+    ? TACHILEIK_DELIVERY_FEE
+    : Number.isFinite(normalizedFee)
     ? (codAvailable ? normalizedFee : gateDeliveryFee)
     : codAvailable
       ? deliveryFee

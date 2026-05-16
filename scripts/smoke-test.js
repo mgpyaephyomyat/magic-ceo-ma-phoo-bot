@@ -81,6 +81,7 @@ const mockZones = [
   { city: "မန္တလေး", township: null, aliases: [], cod_available: true, delivery_fee: 4800 },
   { city: "မန္တလေးအဝေးမြို့များ", township: null, aliases: [], cod_available: true, delivery_fee: 6300 },
   { city: "နေပြည်တော်", township: null, aliases: [], cod_available: true, delivery_fee: 4800 },
+  { city: "တာချီလိတ်", township: null, aliases: ["tachileik"], cod_available: true, delivery_fee: 6300 },
 ];
 
 const zoneCases = [
@@ -90,6 +91,8 @@ const zoneCases = [
   ["စဉ့်ကိုင်", 6300],
   ["ဒလ", 4800],
   ["တွံတေး", 6300],
+  ["တာချီလိတ်", 10000],
+  ["tachileik", 10000],
   ["သင်္ဃန်းကျွန်း", 4800],
   ["နေပြည်တော်", 4800],
 ];
