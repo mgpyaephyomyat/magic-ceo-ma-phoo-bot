@@ -148,7 +148,11 @@ const YANGON_ALIASES = [
   "ဗဟန်း",
   "bahan",
   "ရွှေပြည်သာ",
+  "ဒလ",
   "လှည်းကူး",
+  "လှိုင်သာယာ",
+  "hlaing tharyar",
+  "hlaingtharyar",
   "မင်္ဂလာဒုံ",
   "မှော်ဘီ",
   "သန်လျင်",
@@ -161,12 +165,8 @@ const FAR_YANGON_ALIASES = [
   "ခရမ်း",
   "သုံးခွ",
   "တွံတေး",
-  "ဒလ",
   "ကော့မှူး",
   "ကွမ်းခြံကုန်း",
-  "လှိုင်သာယာ",
-  "hlaing tharyar",
-  "hlaingtharyar",
 ];
 
 const MANDALAY_ALIASES = [
