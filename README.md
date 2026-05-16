@@ -226,7 +226,7 @@ Delivery fee/payment rules use `delivery_zones` as the source of truth:
 - Matching Mandalay Region aliases: `4,800 Ks` and `အိမ်ရောက်ငွေချေ`
 - Matching Naypyitaw Region aliases: `4,800 Ks`; payment follows `delivery_zones.cod_available`
 - Matching Tachileik aliases: `10,000 Ks` and `အိမ်ရောက်ငွေချေ`
-- Other matched rows with `cod_available=true`: `6,000 Ks` and `အိမ်ရောက်ငွေချေ`
+- Other matched rows with `cod_available=true`: `6,300 Ks` and `အိမ်ရောက်ငွေချေ`
 - Matched rows with `cod_available=false`: `ကားဂိတ်တင်` and `GATE_DELIVERY_FEE`
 - Myanmar city/township without a COD match: `ကားဂိတ်တင်`, `3,000 Ks` gate fee, status `awaiting_payment`
 - Foreign/international address: `Admin confirm`; no automatic delivery fee
