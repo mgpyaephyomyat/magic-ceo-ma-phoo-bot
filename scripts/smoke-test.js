@@ -5,7 +5,9 @@ const {
   extractCartItems,
   extractQuantity,
   isLikelyMyanmarAddress,
+  looksLikeVillageNearTownAddress,
   matchDeliveryZoneFromList,
+  parseCustomerInfo,
   productImageFiles,
 } = require("../index");
 
@@ -23,6 +25,18 @@ for (const [input, expected] of quantityCases) {
     console.error(`Quantity test failed: ${input} => ${actual}, expected ${expected}`);
     process.exit(1);
   }
+}
+
+const customerInfoCase = parseCustomerInfo(
+  "အေးထက်ထက်ဦး\n09662744602\nရန်ကုန်တိုင်းဒေသကြီး၊ တွံတေးမြို့ ရွှေဆံတော်ဘုရားအနီး"
+);
+if (
+  customerInfoCase.customerName !== "အေးထက်ထက်ဦး" ||
+  customerInfoCase.phone !== "09662744602" ||
+  customerInfoCase.address !== "ရန်ကုန်တိုင်းဒေသကြီး၊ တွံတေးမြို့ ရွှေဆံတော်ဘုရားအနီး"
+) {
+  console.error(`Customer info parse test failed: ${JSON.stringify(customerInfoCase)}`);
+  process.exit(1);
 }
 
 const mockProducts = [
@@ -148,6 +162,28 @@ if (mixedFreeTotals.deliveryFee !== 0 || !mixedFreeTotals.freeDeliveryReason.inc
 const singleProductQuantityTotals = calculateCart([mockCartItem("Shampoo", 3, 38000, 2)], gateDeliveryInfo);
 if (singleProductQuantityTotals.deliveryFee !== 3000 || singleProductQuantityTotals.isFreeDelivery) {
   console.error(`Single non-special quantity gate test failed: ${JSON.stringify(singleProductQuantityTotals)}`);
+  process.exit(1);
+}
+
+const foreignDeliveryInfo = {
+  delivery_flow: "foreign",
+  payment_method: "Admin confirm",
+  delivery_fee: null,
+  cod_available: false,
+};
+const foreignFreeBlockedTotals = calculateCart([mockCartItem("BodyWash", 3, 38000, 1)], foreignDeliveryInfo);
+if (foreignFreeBlockedTotals.isFreeDelivery || foreignFreeBlockedTotals.freeDeliveryReason) {
+  console.error(`Foreign free delivery block test failed: ${JSON.stringify(foreignFreeBlockedTotals)}`);
+  process.exit(1);
+}
+
+if (!looksLikeVillageNearTownAddress("ရန်ကုန်တိုင်းဒေသကြီး၊ တွံတေးမြို့ ရွှေဆံတော်ဘုရားအနီး")) {
+  console.error("Village/near-town cue test failed for ဘုရားအနီး");
+  process.exit(1);
+}
+
+if (looksLikeVillageNearTownAddress("ရန်ကုန် လှိုင် သံလွင်လမ်း")) {
+  console.error("Village/near-town cue test incorrectly matched normal street address");
   process.exit(1);
 }
 

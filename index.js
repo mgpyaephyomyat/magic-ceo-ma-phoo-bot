@@ -317,6 +317,16 @@ function savedCustomerInfoKeyboard() {
   };
 }
 
+function deliveryChoiceKeyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "မြို့ပေါ်မှာယူမယ်", callback_data: "delivery_choice:cod" }],
+      [{ text: "ကားဂိတ်တင်ပေးပါ", callback_data: "delivery_choice:gate" }],
+      [{ text: "မလုပ်တော့ပါ", callback_data: "cancel" }],
+    ],
+  };
+}
+
 function removeKeyboard() {
   return { remove_keyboard: true };
 }
@@ -451,18 +461,18 @@ function shortText(value, maxLength = 130) {
 }
 
 function freeDeliveryText(product) {
-  const freeDeliveryQty = getProductFreeDeliveryQty(product);
-  return freeDeliveryQty > 0
-    ? `${freeDeliveryQty} ခုနှင့်အထက် Deli free`
-    : "Deli free သတ်မှတ်ချက် မရှိသေးပါ";
+  const lines = [];
+  if (isBodyWashItem(product)) {
+    lines.push("ရေချိုးဆပ်ပြာ ၃ဗူးနှင့်အထက်ဆို Deli free / ကားဂိတ်တင်ဆို တန်ဆာခ free");
+  } else if (isWhiteningSoapItem(product)) {
+    lines.push("ဆပ်ပြာခဲ ၄ခဲနှင့်အထက်ဆို Deli free / ကားဂိတ်တင်ဆို တန်ဆာခ free");
+  }
+  lines.push("ပစ္စည်း ၃မျိုးယူရင် Deli free / ကားဂိတ်တင်ဆို တန်ဆာခ free");
+  lines.push("နိုင်ငံခြား order များအတွက် free delivery မပါပါ");
+  return lines.join("\n");
 }
 
 function formatProduct(product) {
-  const freeDeliveryQty = getProductFreeDeliveryQty(product);
-  const freeText =
-    freeDeliveryQty > 0
-      ? `\n🚚 ${freeDeliveryQty} ခုနှင့်အထက် Deli free`
-      : "";
   const stockText =
     product.stock === null || product.stock === undefined
       ? ""
@@ -473,7 +483,7 @@ function formatProduct(product) {
     `စျေးနှုန်း: <b>${money(product.price)}</b>${
       product.unit ? ` / ${cleanHtml(product.unit)}` : ""
     }`,
-    freeText.trim(),
+    `ပို့ခ: ${cleanHtml(freeDeliveryText(product))}`,
     stockText.trim(),
     product.description ? `\n${cleanHtml(product.description)}` : "",
   ]
@@ -642,7 +652,7 @@ function formatOrderSummary(session) {
     city ? `မြို့/မြို့နယ်: ${cleanHtml(city)}` : "",
     address ? `လိပ်စာ: ${cleanHtml(address)}` : "",
     !deliveryInfo ? "Note: Delivery နဲ့ ငွေချေမှုကို Admin က confirm လုပ်ပေးပါမယ်ရှင့်။" : "",
-    deliveryInfo?.delivery_flow === "foreign" ? "နိုင်ငံခြားပို့ဆောင်မှုကို မဖူးဘက်က သီးသန့်ရှင်းပြပေးပါမယ်ရှင့်။" : "",
+    deliveryInfo?.delivery_flow === "foreign" ? "နိုင်ငံခြားပို့ခကို သီးသန့်တွက်ပေးပါမယ်ရှင့်။" : "",
     isGateDelivery ? "လွှဲရမယ့်နံပါတ်လေး ပို့ထားပေးပါမယ်ရှင့်😘" : "",
     isGateDelivery ? paymentInstructionsText() : "",
     "",
@@ -902,6 +912,44 @@ function makeForeignDeliveryInfo(input) {
     matched_region: "",
     raw_address: String(input || "").slice(0, 300),
   };
+}
+
+function looksLikeVillageNearTownAddress(text) {
+  const normalized = normalizeText(text);
+  return includesAny(normalized, [
+    "ရွာ",
+    "ကျေးရွာ",
+    "အနီး",
+    "နား",
+    "ဘုရားအနီး",
+    "လမ်းအနီး",
+    "မြို့နား",
+    "အပြင်",
+    "outskirts",
+  ]);
+}
+
+function needsDeliveryChoice(session, deliveryInfo, rawText = "") {
+  if (!deliveryInfo?.cod_available || deliveryInfo.delivery_flow !== "cod") return false;
+  const haystack = [rawText, session?.address, session?.city].filter(Boolean).join("\n");
+  return looksLikeVillageNearTownAddress(haystack);
+}
+
+function gateInfoFromMatchedZone(deliveryInfo, address = "") {
+  return {
+    ...makeGateDeliveryInfo(address),
+    city: deliveryInfo?.city || "",
+    township: deliveryInfo?.township || "",
+    matched_alias: deliveryInfo?.matched_alias || "",
+    matched_region: deliveryInfo?.matched_region || deliveryInfo?.city || deliveryInfo?.township || "",
+  };
+}
+
+function nearTownDeliveryQuestion() {
+  return [
+    "ညီမလေး လိပ်စာက မြို့ပေါ်အိမ်အရောက်ပို့လို့ရတဲ့နေရာလားရှင့်?",
+    "မြို့ပေါ်မှာသွားယူပေးလို့အဆင်ပြေလားရှင့်?",
+  ].join("\n");
 }
 
 async function getDeliveryInfo(input) {
@@ -1248,8 +1296,11 @@ function orderInfoPrompt(session) {
 }
 
 function parseCustomerInfo(text, product = null) {
-  const lines = String(text || "")
+  const rawLines = String(text || "")
     .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const lines = rawLines
     .map((line) =>
       line
         .replace(/^[-*•\s]+/, "")
@@ -1266,8 +1317,20 @@ function parseCustomerInfo(text, product = null) {
   const beforePhone = phoneMatch ? phoneLine.slice(0, phoneMatch.index).trim() : "";
   const afterPhone = phoneMatch ? phoneLine.slice(phoneMatch.index + phoneMatch[0].length).trim() : "";
   const otherLines = lines.filter((_, index) => index !== phoneIndex);
+
+  if (phoneIndex === 1 && lines[0] && lines.length >= 3) {
+    return {
+      customerName: rawLines[0],
+      address: rawLines.slice(phoneIndex + 1).join("\n").trim(),
+      phone,
+    };
+  }
+
   const rawCustomerName = beforePhone || (phoneIndex === 0 ? "" : otherLines[0] || "");
-  const customerName = product
+  const hasStandaloneNameLine = phoneIndex > 0 && rawCustomerName === lines[0];
+  const customerName = hasStandaloneNameLine
+    ? rawCustomerName
+    : product
     ? cleanCustomerNameLine(rawCustomerName, product)
     : rawCustomerName;
   const address =
@@ -1391,6 +1454,23 @@ async function completeOrderIfCustomerInfoReady(chatId, from, session, rawText =
     paymentMethod: getPaymentLabel(deliveryInfo),
   };
 
+  if (!nextSession.deliveryChoiceResolved && needsDeliveryChoice(nextSession, deliveryInfo, rawText)) {
+    const choiceSession = {
+      ...nextSession,
+      step: "delivery_choice",
+      awaiting_delivery_choice: true,
+      pendingDeliveryInfo: deliveryInfo,
+    };
+    setSession(chatId, choiceSession);
+    if (from?.id) {
+      await persistDraftOrder(from, choiceSession, "delivery_choice");
+    }
+    await sendMessage(chatId, nearTownDeliveryQuestion(), {
+      reply_markup: deliveryChoiceKeyboard(),
+    });
+    return true;
+  }
+
   setSession(chatId, nextSession);
   if (from?.id) {
     await persistDraftOrder(from, nextSession, "order_intent");
@@ -1399,6 +1479,10 @@ async function completeOrderIfCustomerInfoReady(chatId, from, session, rawText =
     reply_markup: confirmKeyboard(),
   });
   return true;
+}
+
+async function sendOrderSummaryOrDeliveryChoice(chatId, from, session, rawText = "") {
+  return completeOrderIfCustomerInfoReady(chatId, from, session, rawText);
 }
 
 function isCancelText(text) {
@@ -1676,7 +1760,9 @@ function calculateCart(items, deliveryInfo = null) {
   const subtotal = items.reduce((sum, item) => sum + Number(item.subtotal || 0), 0);
   const totalQuantity = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
   const productTypes = new Set(items.map((item) => String(item.product_id))).size;
-  const freeDeliveryReason = getCartFreeDeliveryReason(items, deliveryInfo);
+  const freeDeliveryReason = deliveryInfo?.delivery_flow === "foreign"
+    ? ""
+    : getCartFreeDeliveryReason(items, deliveryInfo);
   const isFreeDelivery = Boolean(freeDeliveryReason);
   const zoneFee = deliveryInfo && Number.isFinite(Number(deliveryInfo.delivery_fee))
     ? Number(deliveryInfo.delivery_fee)
@@ -1952,12 +2038,7 @@ async function handleCallback(update) {
     };
 
     if (hasCustomerInfo(nextSession)) {
-      nextSession.step = "confirm";
-      nextSession.awaiting_customer_info = false;
-      setSession(chatId, nextSession);
-      await sendMessage(chatId, formatOrderSummary(nextSession), {
-        reply_markup: confirmKeyboard(),
-      });
+      await completeOrderIfCustomerInfoReady(chatId, from, nextSession);
       return;
     }
 
@@ -1983,6 +2064,38 @@ async function handleCallback(update) {
 
     await sendMessage(chatId, TEXT.askPhone, {
       reply_markup: contactKeyboard(),
+    });
+    return;
+  }
+
+  if (data.startsWith("delivery_choice:")) {
+    const choice = data.split(":")[1];
+    const session = getSession(chatId);
+    if (!session || session.step !== "delivery_choice") {
+      await showCategories(chatId, "အော်ဒါအချက်အလက် မတွေ့တော့ပါဘူးရှင့်။ ပစ္စည်းလေး ပြန်ရွေးပေးပါနော်။");
+      return;
+    }
+
+    const chosenDeliveryInfo =
+      choice === "gate"
+        ? gateInfoFromMatchedZone(session.pendingDeliveryInfo || session.deliveryInfo, session.address)
+        : session.pendingDeliveryInfo || session.deliveryInfo;
+    const nextSession = {
+      ...session,
+      step: "confirm",
+      awaiting_delivery_choice: false,
+      deliveryChoiceResolved: true,
+      deliveryInfo: chosenDeliveryInfo,
+      city: chosenDeliveryInfo
+        ? [chosenDeliveryInfo.city, chosenDeliveryInfo.township].filter(Boolean).join(" / ")
+        : session.city,
+      paymentMethod: getPaymentLabel(chosenDeliveryInfo),
+    };
+    delete nextSession.pendingDeliveryInfo;
+    setSession(chatId, nextSession);
+    await persistDraftOrder(from, nextSession, "order_intent");
+    await sendMessage(chatId, formatOrderSummary(nextSession), {
+      reply_markup: confirmKeyboard(),
     });
     return;
   }
@@ -2402,7 +2515,7 @@ function deliveryReply(zone) {
     return "အဲဒီမြို့/မြို့နယ်အတွက် delivery fee နဲ့ ငွေချေမှုကို Admin က confirm လုပ်ပေးပါမယ်ရှင့်။ မြို့နယ်နာမည်လေး ပိုပြောပေးပါနော်။";
   }
   if (zone.delivery_flow === "foreign") {
-    return "နိုင်ငံခြားပို့ဆောင်မှုအတွက် ပို့ခနဲ့ ငွေချေမှုကို မဖူးဘက်က သီးသန့်ရှင်းပြပေးပါမယ်ရှင့်။";
+    return "နိုင်ငံခြားပို့ခကို သီးသန့်တွက်ပေးပါမယ်ရှင့်။";
   }
 
   const payment = zone.cod_available
@@ -2896,11 +3009,7 @@ async function handleMessage(update) {
   if (!activeSession && text) {
     const textOrderSession = await buildOrderSessionFromText(text, message.from);
     if (textOrderSession) {
-      setSession(chatId, textOrderSession);
-      await persistDraftOrder(message.from, textOrderSession, "order_intent");
-      await sendMessage(chatId, formatOrderSummary(textOrderSession), {
-        reply_markup: confirmKeyboard(),
-      });
+      await sendOrderSummaryOrDeliveryChoice(chatId, message.from, textOrderSession, text);
       return;
     }
   }
@@ -2957,11 +3066,7 @@ async function handleMessage(update) {
 
     const textOrderSession = await buildOrderSessionFromText(text, message.from, activeSession);
     if (textOrderSession) {
-      setSession(chatId, textOrderSession);
-      await persistDraftOrder(message.from, textOrderSession, "order_intent");
-      await sendMessage(chatId, formatOrderSummary(textOrderSession), {
-        reply_markup: confirmKeyboard(),
-      });
+      await sendOrderSummaryOrDeliveryChoice(chatId, message.from, textOrderSession, text);
       return;
     }
 
@@ -2994,11 +3099,7 @@ async function handleMessage(update) {
   if (activeSession?.step === "customer_address") {
     const textOrderSession = await buildOrderSessionFromText(text, message.from, activeSession);
     if (textOrderSession) {
-      setSession(chatId, textOrderSession);
-      await persistDraftOrder(message.from, textOrderSession, "order_intent");
-      await sendMessage(chatId, formatOrderSummary(textOrderSession), {
-        reply_markup: confirmKeyboard(),
-      });
+      await sendOrderSummaryOrDeliveryChoice(chatId, message.from, textOrderSession, text);
       return;
     }
 
@@ -3034,11 +3135,7 @@ async function handleMessage(update) {
   if (activeSession?.step === "customer_phone") {
     const textOrderSession = await buildOrderSessionFromText(text, message.from, activeSession);
     if (textOrderSession) {
-      setSession(chatId, textOrderSession);
-      await persistDraftOrder(message.from, textOrderSession, "order_intent");
-      await sendMessage(chatId, formatOrderSummary(textOrderSession), {
-        reply_markup: confirmKeyboard(),
-      });
+      await sendOrderSummaryOrDeliveryChoice(chatId, message.from, textOrderSession, text);
       return;
     }
 
@@ -3066,9 +3163,7 @@ async function handleMessage(update) {
     };
     setSession(chatId, nextSession);
     await persistDraftOrder(message.from, nextSession, "order_intent");
-    await sendMessage(chatId, formatOrderSummary(nextSession), {
-      reply_markup: confirmKeyboard(),
-    });
+    await sendOrderSummaryOrDeliveryChoice(chatId, message.from, nextSession, text);
     return;
   }
 
@@ -3100,9 +3195,7 @@ async function handleMessage(update) {
       address: text,
     };
     setSession(chatId, nextSession);
-    await sendMessage(chatId, formatOrderSummary(nextSession), {
-      reply_markup: confirmKeyboard(),
-    });
+    await sendOrderSummaryOrDeliveryChoice(chatId, message.from, nextSession, text);
     return;
   }
 
@@ -3253,7 +3346,9 @@ module.exports = {
   extractQuantity,
   formatOrderSummary,
   isLikelyMyanmarAddress,
+  looksLikeVillageNearTownAddress,
   matchDeliveryZoneFromList,
+  parseCustomerInfo,
   productImageFiles,
   startPolling,
   startServer,
